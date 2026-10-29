@@ -56,12 +56,20 @@ interface ChecklistStep {
   validationTip: string;
 }
 
+interface TradeFlowStepWarning {
+  title: string;
+  condition: string;
+  rationale: string;
+  betterApproach: string;
+}
+
 interface TradeFlowStep {
   id: string;
   number: number;
   headline: string;
   summary: string;
   detail: string;
+  warning?: TradeFlowStepWarning;
   visual?: TradeFlowVisualKind;
   allowReferenceUpload?: boolean;
 }
@@ -260,7 +268,16 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         headline: "Use the valid pullback as Inducement / Order Flow / Bullish Order Block.",
         summary: "Wait for price to retrace back down into the valid bullish pullback zone.",
         detail:
-          "Highlight the validated pullback leg / candidate Bullish Order Block zone as your institutional Order Flow re-entry area (or mark it as Inducement ahead of a deeper POI) and wait for price to pull back into discount.",
+          "Highlight the validated pullback leg / candidate Bullish Order Block zone as your institutional Order Flow demand area (or mark it as Inducement ahead of a deeper POI) and wait for price to pull back into discount.",
+        warning: {
+          title: "Aggressive Pullbacks Into Demand — Stand Aside",
+          condition:
+            "When there is an aggressive bearish retracement — often called an \"aggressive pullback\", characterized by large, long-bodied bearish candles dropping sharply into the demand / Bullish Order Block zone — do NOT enter long even if all prior valid pullback conditions were satisfied.",
+          rationale:
+            "If the market is rapidly and drastically moving downward with strong momentum candles into a demand zone without subsiding its momentum, there is a high probability that price will slice straight through and fail to react to that zone.",
+          betterApproach:
+            "Wait for a corrective pullback characterized by multiple overlapping candlestick patterns (slower, stair-stepping retracement candles showing subsiding selling momentum) approaching the demand zone.",
+        },
         visual: "ob_retrace_zone",
         allowReferenceUpload: true,
       },
@@ -463,7 +480,16 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         headline: "Use the valid pullback as Inducement / Order Flow / Bearish Order Block.",
         summary: "Wait for price to retrace back up into the valid bearish pullback zone.",
         detail:
-          "Highlight the validated pullback leg / candidate Bearish Order Block zone as your institutional Order Flow re-entry area (or mark it as Inducement ahead of a higher premium POI) and wait for price to retrace upward into premium.",
+          "Highlight the validated pullback leg / candidate Bearish Order Block zone as your institutional Order Flow supply area (or mark it as Inducement ahead of a higher premium POI) and wait for price to retrace upward into premium.",
+        warning: {
+          title: "Aggressive Pullbacks Into Supply — Stand Aside",
+          condition:
+            "When there is an aggressive bullish retracement — often called an \"aggressive pullback\", characterized by large, long-bodied bullish candles surging sharply into the supply / Bearish Order Block zone — do NOT enter short even if all prior valid pullback conditions were satisfied.",
+          rationale:
+            "If the market is rapidly and drastically moving upward with strong momentum candles into a supply zone without subsiding its momentum, there is a high probability that price will blow straight through and fail to react to that zone.",
+          betterApproach:
+            "Wait for a corrective pullback characterized by multiple overlapping candlestick patterns (slower, stair-stepping retracement candles showing subsiding buying momentum) approaching the supply zone.",
+        },
         visual: "ob_retrace_zone",
         allowReferenceUpload: true,
       },
@@ -1382,6 +1408,12 @@ export default function PullbackStrategyPage() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2 text-xs text-slate-400">
+                    {flowStep.warning && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-300">
+                        <AlertTriangle className="h-3 w-3 text-amber-400" />
+                        Warning
+                      </span>
+                    )}
                     {stepImages.length > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0E131B] px-2 py-0.5 font-mono text-[10px] text-slate-300">
                         <Images className="h-3 w-3 text-emerald-400" />
@@ -1410,11 +1442,40 @@ export default function PullbackStrategyPage() {
                   <div className="overflow-hidden">
                     <div className="border-t border-slate-800/80 px-4 pb-4 pt-3.5 sm:pl-12">
                       {flowStep.visual ? (
-                        <div className="grid gap-4 lg:grid-cols-12 lg:items-center">
-                          <div className="lg:col-span-7">
+                        <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+                          <div className="lg:col-span-7 space-y-3">
                             <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
                               {flowStep.detail}
                             </p>
+
+                            {flowStep.warning && (
+                              <div
+                                role="note"
+                                className="rounded-xl border border-amber-500/35 bg-amber-500/[0.07] p-3.5 sm:p-4 border-l-4 border-l-amber-400 space-y-2"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                                  <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                                    Warning · {flowStep.warning.title}
+                                  </span>
+                                </div>
+                                <p className="text-xs leading-relaxed text-amber-100/95">
+                                  {flowStep.warning.condition}
+                                </p>
+                                <p className="text-xs leading-relaxed text-slate-300">
+                                  <strong className="font-semibold text-amber-200">
+                                    Rationale:{" "}
+                                  </strong>
+                                  {flowStep.warning.rationale}
+                                </p>
+                                <div className="rounded-lg border border-emerald-500/25 bg-[#080B10]/90 px-3 py-2 text-xs leading-relaxed text-slate-200">
+                                  <strong className="font-semibold text-emerald-400">
+                                    Better Approach:{" "}
+                                  </strong>
+                                  {flowStep.warning.betterApproach}
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <div className="lg:col-span-5">
                             <TradeFlowDiagram

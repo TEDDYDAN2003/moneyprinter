@@ -371,17 +371,17 @@ export function TradeFlowDiagram({ market, visual }: TradeFlowDiagramProps) {
       {/* 5. Use Valid Pullback as Inducement / Order Block / Order Flow Zone */}
       {visual === "ob_retrace_zone" && (
         <svg
-          viewBox="0 0 310 145"
-          className="h-36 w-full select-none"
+          viewBox="0 0 310 150"
+          className="h-38 w-full select-none"
           role="img"
-          aria-label={`${market} inducement order block retrace zone diagram`}
+          aria-label={`${market} corrective vs aggressive pullback into zone diagram`}
         >
-          {/* Shaded OB / Valid Pullback Zone */}
+          {/* Shaded Demand / Supply OB Zone */}
           <rect
-            x="76"
-            y={isBull ? 84 : 32}
-            width="214"
-            height="28"
+            x="64"
+            y={isBull ? 88 : 34}
+            width="230"
+            height="26"
             rx="4"
             fill={accentFill}
             stroke={accentStroke}
@@ -389,90 +389,112 @@ export function TradeFlowDiagram({ market, visual }: TradeFlowDiagramProps) {
             strokeDasharray="4 2"
           />
           <text
-            x="284"
-            y={isBull ? 101 : 49}
-            textAnchor="end"
+            x="70"
+            y={isBull ? 104 : 50}
             fill={accentText}
-            fontSize="8.5"
+            fontSize="8"
             fontWeight="700"
             fontFamily="monospace"
           >
-            {isBull ? "Bullish OB / Order Flow Zone" : "Bearish OB / Order Flow Zone"}
+            {isBull ? "Demand / Bullish OB Zone" : "Supply / Bearish OB Zone"}
           </text>
 
           {isBull ? (
             <>
+              {/* Impulse + Valid Pullback + BOS */}
               <polyline
-                points="22,128 76,68 106,98 168,24 214,62 246,94"
+                points="18,128 64,72 90,98 144,24"
                 fill="none"
                 stroke="#CBD5E1"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              {/* BOS Line */}
-              <line
-                x1="76"
-                y1="68"
-                x2="155"
-                y2="68"
-                stroke="#10B981"
+              {/* Aggressive Pullback (Dashed Warning Path slicing straight through) */}
+              <polyline
+                points="144,24 166,134"
+                fill="none"
+                stroke="#F43F5E"
+                strokeWidth="2"
                 strokeDasharray="3 3"
               />
               <text
-                x="118"
-                y="62"
+                x="168"
+                y="144"
                 textAnchor="middle"
-                fill="#34D399"
-                fontSize="8.5"
+                fill="#FB7185"
+                fontSize="8"
+                fontWeight="700"
                 fontFamily="monospace"
               >
-                BOS
+                Aggressive ✗
               </text>
-              <circle cx="246" cy="94" r="5" fill="#10B981" />
+
+              {/* Corrective Multi-Candle Pullback (Stair-step into Demand Zone) */}
+              <polyline
+                points="144,24 176,52 192,40 218,72 234,60 262,94 288,58"
+                fill="none"
+                stroke="#10B981"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="262" cy="94" r="4.5" fill="#34D399" />
               <text
-                x="246"
-                y="125"
+                x="262"
+                y="128"
                 textAnchor="middle"
                 fill="#34D399"
                 fontSize="8.5"
                 fontWeight="700"
                 fontFamily="monospace"
               >
-                Retrace Into Zone
+                Corrective ✓
               </text>
             </>
           ) : (
             <>
+              {/* Impulse + Valid Pullback + BOS */}
               <polyline
-                points="22,18 76,78 106,48 168,122 214,84 246,52"
+                points="18,22 64,78 90,52 144,126"
                 fill="none"
                 stroke="#CBD5E1"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <line
-                x1="76"
-                y1="78"
-                x2="155"
-                y2="78"
-                stroke="#F43F5E"
+              {/* Aggressive Pullback (Dashed Warning Path slicing straight through Supply) */}
+              <polyline
+                points="144,126 166,16"
+                fill="none"
+                stroke="#F59E0B"
+                strokeWidth="2"
                 strokeDasharray="3 3"
               />
               <text
-                x="118"
-                y="90"
+                x="168"
+                y="11"
                 textAnchor="middle"
-                fill="#FB7185"
-                fontSize="8.5"
+                fill="#FBBF24"
+                fontSize="8"
+                fontWeight="700"
                 fontFamily="monospace"
               >
-                BOS
+                Aggressive ✗
               </text>
-              <circle cx="246" cy="52" r="5" fill="#F43F5E" />
+
+              {/* Corrective Multi-Candle Pullback (Stair-step into Supply Zone) */}
+              <polyline
+                points="144,126 176,98 192,110 218,78 234,90 262,54 288,92"
+                fill="none"
+                stroke="#F43F5E"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="262" cy="54" r="4.5" fill="#FB7185" />
               <text
-                x="246"
+                x="262"
                 y="24"
                 textAnchor="middle"
                 fill="#FB7185"
@@ -480,7 +502,7 @@ export function TradeFlowDiagram({ market, visual }: TradeFlowDiagramProps) {
                 fontWeight="700"
                 fontFamily="monospace"
               >
-                Retrace Into Zone
+                Corrective ✓
               </text>
             </>
           )}
