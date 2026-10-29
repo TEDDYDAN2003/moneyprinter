@@ -8,8 +8,11 @@ import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  ExternalLink,
   Images,
   Info,
+  Lightbulb,
+  ListOrdered,
   Pencil,
   RotateCcw,
   TrendingDown,
@@ -20,6 +23,10 @@ import {
   type MarketDirection,
   type StepNumber,
 } from "@/components/PullbackStepDiagram";
+import {
+  TradeFlowDiagram,
+  type TradeFlowVisualKind,
+} from "@/components/TradeFlowDiagram";
 import { ChecklistReferenceGallery } from "@/components/ChecklistReferenceGallery";
 import {
   fetchAllChecklistReferences,
@@ -46,12 +53,41 @@ interface ChecklistStep {
   validationTip: string;
 }
 
+interface TradeFlowStep {
+  id: string;
+  number: number;
+  headline: string;
+  summary: string;
+  detail: string;
+  visual?: TradeFlowVisualKind;
+  allowReferenceUpload?: boolean;
+}
+
 interface MarketPullbackConfig {
   heading: string;
   abstract: string;
   checklistPrompt: string;
   steps: ChecklistStep[];
+  ictNote: {
+    intro: string;
+    inducementBullet: string;
+    orderBlockBullet: string;
+    orderFlowBullet: string;
+    closing: string;
+  };
+  tradeFlowHeading: string;
+  tradeFlowIntro: string;
+  tradeFlowSteps: TradeFlowStep[];
 }
+
+const ICT_CONCEPT_LINKS = {
+  bos: "https://innercircletrader.net/tutorials/break-of-structure-bos/",
+  inducement:
+    "https://innercircletrader.net/tutorials/what-is-inducement-in-forex/",
+  orderBlock: "https://innercircletrader.net/tutorials/ict-order-block/",
+  orderFlow:
+    "https://innercircletrader.net/tutorials/ict-market-order-flow-explained/",
+};
 
 const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
   bullish: {
@@ -130,6 +166,130 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         ],
         validationTip:
           "This single asymmetry is why a valid bullish pullback works so well — it filters out stop-hunt pullbacks that sweep the low on the grab side yet have no institutional follow-through close above the high.",
+      },
+    ],
+    ictNote: {
+      intro: "Valid pullback is the building block of the rest of the framework.",
+      inducementBullet:
+        "The first valid pullback inside a bullish leg before a bullish BOS is the Inducement.",
+      orderBlockBullet:
+        "The last bullish/anchor candle before the displacement that produced the bullish BOS — that is, the candle whose upside closing break confirms the valid pullback — marks the candidate Bullish Order Block zone.",
+      orderFlowBullet:
+        "Every valid pullback inside the upward leg becomes a bullish ICT Order Flow re-entry zone.",
+      closing:
+        "So mastering valid pullback is the prerequisite for everything that follows.",
+    },
+    tradeFlowHeading: "Step-by-Step Valid Bullish Pullback Trade Flow",
+    tradeFlowIntro:
+      "This is the exact sequence to run when executing a long setup from a valid bullish pullback.",
+    tradeFlowSteps: [
+      {
+        id: "bull-flow-1",
+        number: 1,
+        headline: "Read the higher-timeframe context.",
+        summary: "1-day and 4-hour charts — confirm bullish structure.",
+        detail:
+          "Start on the 1D and 4H charts and verify higher-high / higher-low bullish structure delivering toward buy-side liquidity (avoid forcing longs inside neutral chop or bearish HTF order flow).",
+        visual: "htf_bias",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-2",
+        number: 2,
+        headline: "Identify the bullish impulse leg.",
+        summary: "Locate a clean upward directional move on your analysis timeframe.",
+        detail:
+          "Drop to your analysis timeframe and isolate a clear, energetic bullish expansion leg pushing higher with decisive candle bodies.",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-3",
+        number: 3,
+        headline: "Mark the highest bullish candle.",
+        summary: "Bullish leg — pinpoint the highest bullish candlestick before retracement.",
+        detail:
+          "Find the bullish candle with the highest upper wick peak at the top of the impulse leg right before bearish pullback candles start forming.",
+        visual: "impulse_anchor",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-4",
+        number: 4,
+        headline: "Mark the bullish GRAB level.",
+        summary: "Bullish — project the low of that highest bullish candle.",
+        detail:
+          "Draw a horizontal line from the exact bottom of the lower wick of that highest bullish candlestick. Price must sweep below this line to qualify as a valid pullback.",
+        visual: "impulse_anchor",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-5",
+        number: 5,
+        headline: "Wait for the pullback to grab the low.",
+        summary: "A lower wick is enough — single candle or multi-candle cluster.",
+        detail:
+          "Let a single bearish candle or a cluster of retracement candles sweep below the marked low. By the Asymmetry Rule, a lower wick piercing the level is sufficient to collect resting sell stops.",
+        visual: "grab_sweep",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-6",
+        number: 6,
+        headline: "Wait for the closing BREAK higher.",
+        summary: "Bullish — a candle closes its body above the high of the highest bullish candle.",
+        detail:
+          "Wait patiently for buyers to step in and close a full candle body above the marked high of the anchor bullish candle. Ignore upper wicks that fail to close above.",
+        visual: "closing_break",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-7",
+        number: 7,
+        headline: "Confirm the valid bullish pullback is now valid.",
+        summary: "Both low-grab and high-close break conditions are satisfied.",
+        detail:
+          "Once both the downside wick grab and the upside closing break have occurred in sequence, the bullish pullback is structurally complete and locked in on the chart.",
+        allowReferenceUpload: false,
+      },
+      {
+        id: "bull-flow-8",
+        number: 8,
+        headline: "Use the valid pullback as Inducement / Order Flow / Bullish Order Block.",
+        summary: "Wait for price to retrace back down into the valid bullish pullback zone.",
+        detail:
+          "Highlight the validated pullback leg / candidate Bullish Order Block zone as your institutional Order Flow re-entry area (or mark it as Inducement ahead of a deeper POI) and wait for price to pull back into discount.",
+        visual: "ob_retrace_zone",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-9",
+        number: 9,
+        headline: "Enter long on lower-timeframe MSS confirmation.",
+        summary: "At the valid bullish pullback zone, aligned with HTF bullish bias.",
+        detail:
+          "Once price taps into the valid bullish pullback / Order Block zone, drop to your execution timeframe (e.g. 15m / 5m / 1m) and enter long after a confirmed bullish Market Structure Shift (MSS).",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bull-flow-10",
+        number: 10,
+        headline: "Set the protective stop below the extreme.",
+        summary: "Place stop below the valid bullish pullback low, with a small buffer.",
+        detail:
+          "Position your stop-loss safely beneath the lowest wick of the valid pullback swing low (or LTF sweep low) plus a small spread buffer so normal noise cannot prematurely tag you out.",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: false,
+      },
+      {
+        id: "bull-flow-11",
+        number: 11,
+        headline: "Take profit at the next buy-side draw on liquidity.",
+        summary: "Target an old high, relative equal highs (EQH), or higher-timeframe FVG.",
+        detail:
+          "Scale out or set your primary take-profit at the clearest overhead buy-side liquidity pool — such as an unmitigated swing high, engineered equal highs (EQH), or a 4H/1D Fair Value Gap.",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: true,
       },
     ],
   },
@@ -211,6 +371,130 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
           "This single asymmetry is why a valid bearish pullback works so well — it filters out stop-hunt pullbacks that sweep the high on the grab side yet have no institutional follow-through close below the low.",
       },
     ],
+    ictNote: {
+      intro: "Valid pullback is the building block of the rest of the framework.",
+      inducementBullet:
+        "The first valid pullback inside a bearish leg before a bearish BOS is the Inducement.",
+      orderBlockBullet:
+        "The last bearish/anchor candle before the displacement that produced the bearish BOS — that is, the candle whose downside closing break confirms the valid pullback — marks the candidate Bearish Order Block zone.",
+      orderFlowBullet:
+        "Every valid pullback inside the downward leg becomes a bearish ICT Order Flow re-entry zone.",
+      closing:
+        "So mastering valid pullback is the prerequisite for everything that follows.",
+    },
+    tradeFlowHeading: "Step-by-Step Valid Bearish Pullback Trade Flow",
+    tradeFlowIntro:
+      "This is the exact sequence to run when executing a short setup from a valid bearish pullback.",
+    tradeFlowSteps: [
+      {
+        id: "bear-flow-1",
+        number: 1,
+        headline: "Read the higher-timeframe context.",
+        summary: "1-day and 4-hour charts — confirm bearish structure.",
+        detail:
+          "Start on the 1D and 4H charts and verify lower-low / lower-high bearish structure delivering toward sell-side liquidity (avoid forcing shorts inside neutral consolidation or bullish HTF order flow).",
+        visual: "htf_bias",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-2",
+        number: 2,
+        headline: "Identify the bearish impulse leg.",
+        summary: "Locate a clean downward directional move on your analysis timeframe.",
+        detail:
+          "Drop to your analysis timeframe and isolate a decisive bearish expansion leg pushing lower with clear displacement.",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-3",
+        number: 3,
+        headline: "Mark the lowest bearish candle.",
+        summary: "Bearish leg — pinpoint the lowest bearish candlestick before retracement.",
+        detail:
+          "Find the bearish candle with the lowest lower wick extreme at the bottom of the impulse leg right before bullish pullback candles begin forming.",
+        visual: "impulse_anchor",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-4",
+        number: 4,
+        headline: "Mark the bearish GRAB level.",
+        summary: "Bearish — project the high of that lowest bearish candle.",
+        detail:
+          "Draw a horizontal line from the exact top of the upper wick of that lowest bearish candlestick. Price must sweep above this line to qualify as a valid bearish pullback.",
+        visual: "impulse_anchor",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-5",
+        number: 5,
+        headline: "Wait for the pullback to grab the high.",
+        summary: "An upper wick is enough — single candle or multi-candle cluster.",
+        detail:
+          "Let a single bullish candle or a cluster of retracement candles sweep above the marked high. By the Asymmetry Rule, an upper wick piercing the level is sufficient to collect resting buy stops.",
+        visual: "grab_sweep",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-6",
+        number: 6,
+        headline: "Wait for the closing BREAK lower.",
+        summary: "Bearish — a candle closes its body below the low of the lowest bearish candle.",
+        detail:
+          "Wait patiently for sellers to step back in and close a full candle body below the marked low of the anchor bearish candle. Ignore lower wicks that fail to close below.",
+        visual: "closing_break",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-7",
+        number: 7,
+        headline: "Confirm the valid bearish pullback is now valid.",
+        summary: "Both high-grab and low-close break conditions are satisfied.",
+        detail:
+          "Once both the upside wick grab and the downside closing break have occurred in sequence, the bearish pullback is structurally complete and locked in on the chart.",
+        allowReferenceUpload: false,
+      },
+      {
+        id: "bear-flow-8",
+        number: 8,
+        headline: "Use the valid pullback as Inducement / Order Flow / Bearish Order Block.",
+        summary: "Wait for price to retrace back up into the valid bearish pullback zone.",
+        detail:
+          "Highlight the validated pullback leg / candidate Bearish Order Block zone as your institutional Order Flow re-entry area (or mark it as Inducement ahead of a higher premium POI) and wait for price to retrace upward into premium.",
+        visual: "ob_retrace_zone",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-9",
+        number: 9,
+        headline: "Enter short on lower-timeframe MSS confirmation.",
+        summary: "At the valid bearish pullback zone, aligned with HTF bearish bias.",
+        detail:
+          "Once price taps into the valid bearish pullback / Order Block zone, drop to your execution timeframe (e.g. 15m / 5m / 1m) and enter short after a confirmed bearish Market Structure Shift (MSS).",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: true,
+      },
+      {
+        id: "bear-flow-10",
+        number: 10,
+        headline: "Set the protective stop above the extreme.",
+        summary: "Place stop above the valid bearish pullback high, with a small buffer.",
+        detail:
+          "Position your stop-loss safely above the highest wick of the valid pullback swing high (or LTF sweep high) plus a small spread buffer to protect against minor liquidity pokes.",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: false,
+      },
+      {
+        id: "bear-flow-11",
+        number: 11,
+        headline: "Take profit at the next sell-side draw on liquidity.",
+        summary: "Target an old low, relative equal lows (EQL), or higher-timeframe FVG.",
+        detail:
+          "Scale out or set your primary take-profit at the clearest Resting Sell-Side Liquidity pool below — such as an old swing low, engineered equal lows (EQL), or an unmitigated 4H/1D Fair Value Gap.",
+        visual: "ltf_mss_entry",
+        allowReferenceUpload: true,
+      },
+    ],
   },
 };
 
@@ -223,7 +507,7 @@ export default function PullbackStrategyPage() {
   // Track expanded ("unshrunk") state per item ID — collapsed by default
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
 
-  // Track checked pre-trade checklist marks per item ID
+  // Track checked pre-trade checklist marks per item ID (both identification & trade flow)
   const [checkedIds, setCheckedIds] = useState<Record<string, boolean>>({});
 
   // Reference images per step ID (loaded from Supabase Storage 'pullback-references' or preview store)
@@ -252,6 +536,7 @@ export default function PullbackStrategyPage() {
   const activeConfig = PULLBACK_CONFIG[market];
   const isBullish = market === "bullish";
 
+  // Identification Checklist metrics (I - V)
   const checkedCount = activeConfig.steps.filter(
     (s) => checkedIds[s.id]
   ).length;
@@ -259,23 +544,39 @@ export default function PullbackStrategyPage() {
   const allChecked = checkedCount === totalSteps;
   const allExpanded = activeConfig.steps.every((s) => expandedIds[s.id]);
 
+  // Step-by-Step Trade Flow metrics (1 - 11)
+  const flowCheckedCount = activeConfig.tradeFlowSteps.filter(
+    (s) => checkedIds[s.id]
+  ).length;
+  const totalFlowSteps = activeConfig.tradeFlowSteps.length;
+  const allFlowChecked = flowCheckedCount === totalFlowSteps;
+  const allFlowExpanded = activeConfig.tradeFlowSteps.every(
+    (s) => expandedIds[s.id]
+  );
+
   function handleSelectMarket(nextMarket: MarketDirection) {
     setMarket(nextMarket);
-    // Always return to read-only view mode by default when switching market
     setIsEditMode(false);
   }
 
-  function handleToggleEditMode() {
+  function handleToggleEditMode(targetSection: "checklist" | "flow" = "checklist") {
     const enteringEdit = !isEditMode;
     setIsEditMode(enteringEdit);
 
-    // When clicking 'Edit', automatically unshrink the active market's steps so the upload sections are immediately visible
     if (enteringEdit) {
       setExpandedIds((prev) => {
         const updated = { ...prev };
-        activeConfig.steps.forEach((s) => {
-          updated[s.id] = true;
-        });
+        if (targetSection === "checklist") {
+          activeConfig.steps.forEach((s) => {
+            updated[s.id] = true;
+          });
+        } else {
+          activeConfig.tradeFlowSteps.forEach((s) => {
+            if (s.allowReferenceUpload) {
+              updated[s.id] = true;
+            }
+          });
+        }
         return updated;
       });
     }
@@ -296,7 +597,7 @@ export default function PullbackStrategyPage() {
     }));
   }
 
-  function handleExpandOrShrinkAll() {
+  function handleExpandOrShrinkChecklist() {
     const nextValue = !allExpanded;
     setExpandedIds((prev) => {
       const updated = { ...prev };
@@ -307,10 +608,31 @@ export default function PullbackStrategyPage() {
     });
   }
 
-  function handleResetChecks() {
+  function handleResetChecklistChecks() {
     setCheckedIds((prev) => {
       const updated = { ...prev };
       activeConfig.steps.forEach((s) => {
+        updated[s.id] = false;
+      });
+      return updated;
+    });
+  }
+
+  function handleExpandOrShrinkFlow() {
+    const nextValue = !allFlowExpanded;
+    setExpandedIds((prev) => {
+      const updated = { ...prev };
+      activeConfig.tradeFlowSteps.forEach((s) => {
+        updated[s.id] = nextValue;
+      });
+      return updated;
+    });
+  }
+
+  function handleResetFlowChecks() {
+    setCheckedIds((prev) => {
+      const updated = { ...prev };
+      activeConfig.tradeFlowSteps.forEach((s) => {
         updated[s.id] = false;
       });
       return updated;
@@ -366,8 +688,8 @@ export default function PullbackStrategyPage() {
             Pullback Strategy
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Select market direction and verify each structural condition before
-            entering a trade.
+            Select market direction, verify valid pullback structure, and run
+            the 11-step execution flow.
           </p>
         </div>
 
@@ -462,7 +784,7 @@ export default function PullbackStrategyPage() {
         </div>
       )}
 
-      {/* Part 2: Chosen Market Section (Header with 'Edit' button + Abstract + Collapsible Checklist) */}
+      {/* Part 2: Chosen Market Identification Checklist + ICT Framework Note */}
       <section
         aria-labelledby="market-pullback-heading"
         className={`rounded-2xl border p-6 transition-colors ${
@@ -488,7 +810,6 @@ export default function PullbackStrategyPage() {
               </h2>
             </div>
 
-            {/* Right Actions: Checked Counter + Edit Toggle */}
             <div className="flex items-center gap-2.5">
               <span
                 className={`rounded-full px-3 py-1 font-mono text-xs font-semibold border ${
@@ -502,7 +823,7 @@ export default function PullbackStrategyPage() {
 
               <button
                 type="button"
-                onClick={handleToggleEditMode}
+                onClick={() => handleToggleEditMode("checklist")}
                 aria-pressed={isEditMode}
                 className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all border ${
                   isEditMode
@@ -531,8 +852,8 @@ export default function PullbackStrategyPage() {
             <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3.5 py-2 text-xs text-amber-200">
               <span>
                 <strong>Edit Mode Active:</strong> Drop or browse local reference
-                images (up to 10 MB per file) inside any checklist step below.
-                Click <strong>Done</strong> when finished.
+                images (up to 10 MB per file) inside any step below. Click{" "}
+                <strong>Done</strong> when finished.
               </span>
             </div>
           )}
@@ -561,7 +882,7 @@ export default function PullbackStrategyPage() {
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               type="button"
-              onClick={handleExpandOrShrinkAll}
+              onClick={handleExpandOrShrinkChecklist}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#090D13] px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:text-white"
             >
               {allExpanded ? (
@@ -580,7 +901,7 @@ export default function PullbackStrategyPage() {
             {checkedCount > 0 && (
               <button
                 type="button"
-                onClick={handleResetChecks}
+                onClick={handleResetChecklistChecks}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#090D13] px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:border-slate-700 hover:text-white"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -590,7 +911,7 @@ export default function PullbackStrategyPage() {
           </div>
         </div>
 
-        {/* Collapsible / Shrink-Unshrink Checklist Items */}
+        {/* Collapsible / Shrink-Unshrink Identification Checklist Items (I - V) */}
         <div className="mt-4 space-y-3">
           {activeConfig.steps.map((step) => {
             const isExpanded = Boolean(expandedIds[step.id]);
@@ -610,7 +931,6 @@ export default function PullbackStrategyPage() {
                     : "border-slate-800/90 bg-[#090D13] hover:border-slate-700/90"
                 }`}
               >
-                {/* Clickable Row Header — Unshrinks/Collapses Explanation & References */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -625,7 +945,6 @@ export default function PullbackStrategyPage() {
                   className="flex cursor-pointer items-start sm:items-center justify-between gap-3.5 px-4 py-3.5 select-none"
                 >
                   <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                    {/* Pre-Trade Checkmark Toggle */}
                     <button
                       type="button"
                       role="checkbox"
@@ -643,7 +962,6 @@ export default function PullbackStrategyPage() {
                       {isChecked && <Check className="h-3.5 w-3.5 stroke-[3]" />}
                     </button>
 
-                    {/* Roman Numeral Badge */}
                     <span
                       className={`mt-0.5 sm:mt-0 shrink-0 rounded-md px-2 py-0.5 font-mono text-xs font-bold border ${
                         isBullish
@@ -654,7 +972,6 @@ export default function PullbackStrategyPage() {
                       {step.roman}
                     </span>
 
-                    {/* Exact Checklist Rule Title */}
                     <span
                       className={`text-sm font-medium leading-snug transition-colors ${
                         isChecked ? "text-white" : "text-slate-200"
@@ -664,7 +981,6 @@ export default function PullbackStrategyPage() {
                     </span>
                   </div>
 
-                  {/* Right Side: Saved Reference Count Pill + Collapse / Unshrink Indicator */}
                   <div className="flex shrink-0 items-center gap-2 text-xs text-slate-400">
                     {stepImages.length > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0E131B] px-2 py-0.5 font-mono text-[10px] text-slate-300">
@@ -687,7 +1003,6 @@ export default function PullbackStrategyPage() {
                   </div>
                 </div>
 
-                {/* Unshrunk (Expanded) Explanation + Candlestick Structure + Reference Images */}
                 <div
                   className={`grid transition-all duration-200 ease-out ${
                     isExpanded
@@ -703,7 +1018,6 @@ export default function PullbackStrategyPage() {
                             {step.explanation}
                           </p>
 
-                          {/* Optional Grab Side vs Break Side Breakdown Cards (Step V Asymmetry Rule) */}
                           {step.asymmetryCards && (
                             <div className="grid gap-2.5 sm:grid-cols-2">
                               {step.asymmetryCards.map((card) => {
@@ -762,7 +1076,6 @@ export default function PullbackStrategyPage() {
                         </div>
                       </div>
 
-                      {/* Reference Images Gallery (Read-only by default; Local Upload Dropzone enabled ONLY in Edit Mode) */}
                       <ChecklistReferenceGallery
                         market={market}
                         stepId={step.id}
@@ -780,7 +1093,7 @@ export default function PullbackStrategyPage() {
           })}
         </div>
 
-        {/* All-Checked Validation Readiness Banner */}
+        {/* All-Checked Identification Readiness Banner */}
         {allChecked && (
           <div
             role="status"
@@ -798,8 +1111,360 @@ export default function PullbackStrategyPage() {
               />
               <span>
                 Valid {isBullish ? "Bullish" : "Bearish"} Pullback Confirmed (
-                {totalSteps}/{totalSteps} conditions verified). Setup satisfies
-                Pullback Strategy structure &amp; Asymmetry Rule.
+                {totalSteps}/{totalSteps} conditions verified). Proceed to the
+                Step-by-Step Trade Flow below.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Inline Note (NOT a standalone section): Why Valid Pullback Matters for Every Other ICT Concept */}
+        <aside
+          aria-label="Why Valid Pullback Matters for Every Other ICT Concept"
+          className="mt-6 rounded-xl border border-amber-500/25 bg-[#090D13] p-4 sm:p-5 border-l-4 border-l-amber-400"
+        >
+          <div className="flex flex-wrap items-center gap-2 mb-2.5">
+            <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/35 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-amber-300">
+              <Lightbulb className="h-3 w-3" />
+              Note
+            </span>
+            <p className="text-xs sm:text-sm font-semibold text-amber-100">
+              Why Valid Pullback Matters for Every Other ICT Concept
+            </p>
+          </div>
+
+          <div className="space-y-2 text-xs sm:text-[13px] leading-relaxed text-slate-300">
+            <p>{activeConfig.ictNote.intro}</p>
+            <ul className="space-y-1.5 pl-4 list-disc marker:text-amber-400/80">
+              <li>
+                {activeConfig.ictNote.inducementBullet.split("BOS")[0]}
+                <a
+                  href={ICT_CONCEPT_LINKS.bos}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 font-semibold text-amber-300 underline decoration-amber-500/40 underline-offset-2 hover:text-amber-200"
+                >
+                  BOS
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {" is the "}
+                <a
+                  href={ICT_CONCEPT_LINKS.inducement}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 font-semibold text-amber-300 underline decoration-amber-500/40 underline-offset-2 hover:text-amber-200"
+                >
+                  Inducement
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                .
+              </li>
+              <li>
+                {isBullish
+                  ? "The last bullish/anchor candle before the displacement that produced the bullish BOS — that is, the candle whose upside closing break confirms the valid pullback — is the candidate Bullish "
+                  : "The last bearish/anchor candle before the displacement that produced the bearish BOS — that is, the candle whose downside closing break confirms the valid pullback — is the candidate Bearish "}
+                <a
+                  href={ICT_CONCEPT_LINKS.orderBlock}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 font-semibold text-amber-300 underline decoration-amber-500/40 underline-offset-2 hover:text-amber-200"
+                >
+                  Order Block
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                .
+              </li>
+              <li>
+                {isBullish
+                  ? "Every valid pullback inside the upward leg becomes a bullish "
+                  : "Every valid pullback inside the downward leg becomes a bearish "}
+                <a
+                  href={ICT_CONCEPT_LINKS.orderFlow}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 font-semibold text-amber-300 underline decoration-amber-500/40 underline-offset-2 hover:text-amber-200"
+                >
+                  ICT Order Flow
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {" re-entry zone."}
+              </li>
+            </ul>
+            <p className="pt-0.5 font-medium text-slate-200">
+              {activeConfig.ictNote.closing}
+            </p>
+          </div>
+        </aside>
+      </section>
+
+      {/* Part 3: Step-by-Step Valid Pullback Trade Flow (Market-Specific 11-Step Playbook) */}
+      <section
+        aria-labelledby="trade-flow-heading"
+        className={`rounded-2xl border p-6 transition-colors ${
+          isBullish
+            ? "border-emerald-500/25 bg-[#0E131B]"
+            : "border-rose-500/25 bg-[#0E131B]"
+        }`}
+      >
+        <div className="border-b border-slate-800/80 pb-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
+                  isBullish
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                }`}
+              >
+                <ListOrdered className="h-4 w-4" />
+              </div>
+              <div>
+                <h2
+                  id="trade-flow-heading"
+                  className="text-lg sm:text-xl font-bold text-white"
+                >
+                  {activeConfig.tradeFlowHeading}
+                </h2>
+                <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
+                  {activeConfig.tradeFlowIntro}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <span
+                className={`rounded-full px-3 py-1 font-mono text-xs font-semibold border ${
+                  isBullish
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                }`}
+              >
+                {flowCheckedCount} / {totalFlowSteps} Steps
+              </span>
+
+              <button
+                type="button"
+                onClick={() => handleToggleEditMode("flow")}
+                aria-pressed={isEditMode}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all border ${
+                  isEditMode
+                    ? isBullish
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.28)]"
+                      : "bg-rose-500 text-white border-rose-400 shadow-[0_0_18px_rgba(244,63,94,0.28)]"
+                    : "bg-[#090D13] text-slate-200 border-slate-700/90 hover:border-slate-500 hover:text-white"
+                }`}
+              >
+                {isEditMode ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 stroke-[2.5]" />
+                    <span>Done</span>
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="h-3.5 w-3.5" />
+                    <span>Edit</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-slate-500">
+              Click any step to unshrink structure diagrams &amp; reference charts
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExpandOrShrinkFlow}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#090D13] px-2.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:text-white"
+              >
+                {allFlowExpanded ? (
+                  <>
+                    <ChevronsDownUp className="h-3.5 w-3.5 text-slate-400" />
+                    <span>Shrink All</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-slate-400" />
+                    <span>Unshrink All</span>
+                  </>
+                )}
+              </button>
+
+              {flowCheckedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetFlowChecks}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-[#090D13] px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:border-slate-700 hover:text-white"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 11-Step Execution Sequence */}
+        <div className="mt-4 space-y-2.5">
+          {activeConfig.tradeFlowSteps.map((flowStep) => {
+            const isExpanded = Boolean(expandedIds[flowStep.id]);
+            const isChecked = Boolean(checkedIds[flowStep.id]);
+            const stepImages = referencesByStep[flowStep.id] ?? [];
+
+            return (
+              <div
+                key={flowStep.id}
+                className={`rounded-xl border transition-all ${
+                  isChecked
+                    ? isBullish
+                      ? "border-emerald-500/40 bg-emerald-500/[0.05]"
+                      : "border-rose-500/40 bg-rose-500/[0.05]"
+                    : isExpanded
+                    ? "border-slate-700 bg-[#0B1018]"
+                    : "border-slate-800/90 bg-[#090D13] hover:border-slate-700/90"
+                }`}
+              >
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleExpand(flowStep.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleExpand(flowStep.id);
+                    }
+                  }}
+                  className="flex cursor-pointer items-start sm:items-center justify-between gap-3.5 px-4 py-3 select-none"
+                >
+                  <div className="flex items-start sm:items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={isChecked}
+                      aria-label={`Mark trade flow step ${flowStep.number} completed`}
+                      onClick={(e) => toggleCheck(flowStep.id, e)}
+                      className={`mt-0.5 sm:mt-0 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all ${
+                        isChecked
+                          ? isBullish
+                            ? "border-emerald-400 bg-emerald-500 text-slate-950"
+                            : "border-rose-400 bg-rose-500 text-white"
+                          : "border-slate-600 bg-[#0E131B] hover:border-slate-400"
+                      }`}
+                    >
+                      {isChecked && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                    </button>
+
+                    <span
+                      className={`mt-0.5 sm:mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-xs font-bold border ${
+                        isBullish
+                          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                          : "border-rose-500/25 bg-rose-500/10 text-rose-300"
+                      }`}
+                    >
+                      {flowStep.number}
+                    </span>
+
+                    <div className="min-w-0">
+                      <span className="text-sm font-semibold text-white">
+                        {flowStep.headline}{" "}
+                      </span>
+                      <span className="text-xs sm:text-sm text-slate-400">
+                        {flowStep.summary}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2 text-xs text-slate-400">
+                    {stepImages.length > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-700/80 bg-[#0E131B] px-2 py-0.5 font-mono text-[10px] text-slate-300">
+                        <Images className="h-3 w-3 text-emerald-400" />
+                        {stepImages.length}
+                      </span>
+                    )}
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform duration-200 ${
+                        isExpanded
+                          ? isBullish
+                            ? "rotate-180 text-emerald-400"
+                            : "rotate-180 text-rose-400"
+                          : "text-slate-500"
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className={`grid transition-all duration-200 ease-out ${
+                    isExpanded
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "grid-rows-[0fr] opacity-0 pointer-events-none"
+                  }`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="border-t border-slate-800/80 px-4 pb-4 pt-3.5 sm:pl-12">
+                      {flowStep.visual ? (
+                        <div className="grid gap-4 lg:grid-cols-12 lg:items-center">
+                          <div className="lg:col-span-7">
+                            <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
+                              {flowStep.detail}
+                            </p>
+                          </div>
+                          <div className="lg:col-span-5">
+                            <TradeFlowDiagram
+                              market={market}
+                              visual={flowStep.visual}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
+                          {flowStep.detail}
+                        </p>
+                      )}
+
+                      {flowStep.allowReferenceUpload && (
+                        <ChecklistReferenceGallery
+                          market={market}
+                          stepId={flowStep.id}
+                          stepRoman={`Step ${flowStep.number}`}
+                          isEditing={isEditMode}
+                          images={stepImages}
+                          onUploadFiles={handleUploadStepFiles}
+                          onDeleteImage={handleDeleteStepImage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* All 11 Trade Flow Steps Verified Banner */}
+        {allFlowChecked && (
+          <div
+            role="status"
+            className={`mt-5 flex items-center justify-between gap-3 rounded-xl border px-4 py-3.5 ${
+              isBullish
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+            }`}
+          >
+            <div className="flex items-center gap-2.5 text-xs sm:text-sm font-medium">
+              <CheckCircle2
+                className={`h-5 w-5 shrink-0 ${
+                  isBullish ? "text-emerald-400" : "text-rose-400"
+                }`}
+              />
+              <span>
+                All 11 {isBullish ? "Bullish (Long)" : "Bearish (Short)"} Trade
+                Flow steps verified — Entry, Stop-Loss, and Liquidity Target
+                confirmed!
               </span>
             </div>
           </div>

@@ -89,7 +89,7 @@ create table if not exists public.pullback_checklist_images (
   user_id uuid not null references auth.users (id) on delete cascade,
   market text not null check (market in ('bullish', 'bearish')),
   step_id text not null check (
-    step_id ~ '^(bull|bear)-[1-9][0-9]*$'
+    step_id ~ '^(bull|bear)-(flow-)?[1-9][0-9]*$'
   ),
   storage_path text not null unique,
   file_name text not null,
