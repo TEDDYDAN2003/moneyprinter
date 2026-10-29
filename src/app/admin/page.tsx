@@ -160,8 +160,8 @@ export default async function AdminOverviewPage({
               desc: "PKCE auth code exchange handler",
             },
             {
-              file: "supabase/schema.sql",
-              desc: "Starter RLS profile setup ready for journal tables",
+              file: "supabase/migrations/*_storage.sql",
+              desc: "10 MB private 'pullback-references' bucket & RLS policies",
             },
           ].map((item) => (
             <div

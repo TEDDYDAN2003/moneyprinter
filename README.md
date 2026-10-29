@@ -30,7 +30,9 @@ Personal Trading Journal & Pre-Trade Strategy Execution Workspace built with **N
    NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
    ```
-3. (Optional) Run `supabase/schema.sql` inside your Supabase SQL Editor to initialize the `profiles` table with Row Level Security.
+3. Run the SQL migrations in `supabase/migrations/` inside your Supabase SQL Editor (or via `supabase db push`):
+   - `20261029000000_init_profiles.sql` — Initializes `public.profiles` with RLS.
+   - `20261029000001_pullback_checklist_storage.sql` — Creates the private `pullback-references` storage bucket (`file_size_limit = 10485760` / 10 MB max), `storage.objects` per-user RLS policies, and `public.pullback_checklist_images`.
 
 ## Local Development
 

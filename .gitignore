@@ -9,6 +9,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -29,3 +30,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sandbox / home environment files
+/.npm
+/.config
+/.cache
+/.local
+/.ssh
+/.arena
+/.bash*
+/.profile
+/.gitconfig
+/.git-credentials
+/.netrc
+/.wget-hsts
