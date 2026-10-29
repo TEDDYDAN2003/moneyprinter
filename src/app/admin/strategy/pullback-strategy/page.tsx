@@ -29,12 +29,20 @@ import {
   type ChecklistReferenceImage,
 } from "@/lib/pullbackReferences";
 
+interface AsymmetryBreakdownCard {
+  sideLabel: string;
+  ruleBadge: string;
+  tone: "grab" | "break";
+  description: string;
+}
+
 interface ChecklistStep {
   id: string;
   roman: string;
   stepNumber: StepNumber;
   title: string;
   explanation: string;
+  asymmetryCards?: AsymmetryBreakdownCard[];
   validationTip: string;
 }
 
@@ -81,9 +89,9 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         title:
           "Check if the low of that highest bullish candlestick is grabbed by the pullback candlesticks.",
         explanation:
-          "Confirm that one or more subsequent pullback candlesticks trade below that marked low — either via a wick sweep or a full candle close beneath it. Grabbing this low collects resting sell-side liquidity and officially qualifies the retracement as a pullback candidate.",
+          "Confirm that one or more subsequent pullback candlesticks trade below that marked low — a lower wick sweep alone is sufficient. Grabbing this low collects resting sell-side liquidity beneath the anchor candle and qualifies the retracement as a pullback candidate.",
         validationTip:
-          "If pullback candles stay completely inside the anchor candle's range without taking its low, it is NOT a valid pullback yet.",
+          "If pullback candles stay completely inside the anchor candle's range without sweeping its low, it is NOT a valid pullback yet.",
       },
       {
         id: "bull-4",
@@ -92,9 +100,36 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         title:
           "Check that after the low (of the highest bullish candlestick) is grabbed, the high (of the highest bullish candlestick) is broken.",
         explanation:
-          "After the anchor candle's low has been swept, wait for bullish momentum to step back in and break above the high of that highest bullish candlestick. Breaking that high confirms that the pullback has completed and the bullish impulse leg has resumed.",
+          "After the anchor candle's low has been grabbed, wait for bullish momentum to step back in and break above the high of that highest bullish candlestick with a candle close above it. Breaking that high confirms that the pullback has completed and the bullish impulse leg has resumed.",
         validationTip:
-          "Wait for structure confirmation — the low grab happens first, followed by the break of the anchor high.",
+          "Wait for structure confirmation — the low grab happens first, followed by a confirmed break above the anchor high.",
+      },
+      {
+        id: "bull-5",
+        roman: "(V)",
+        stepNumber: 5,
+        title:
+          "Wick Grab vs Closing Break — The Asymmetry Rule: verify a wick grab below the low AND a full candle close above the high.",
+        explanation:
+          "The asymmetric rule for a valid bullish pullback is what separates a real institutional retracement from a stop-hunt or fake-out.",
+        asymmetryCards: [
+          {
+            sideLabel: "GRAB SIDE · Low of Highest Bullish Candle",
+            ruleBadge: "Wick Is Enough ✓",
+            tone: "grab",
+            description:
+              "In a bullish leg, smart money frequently sweeps below the marked low of the highest bullish candlestick with just a lower wick to trigger resting sell stops. That wick sweep alone qualifies as the grab — a candle body close below the low is NOT required.",
+          },
+          {
+            sideLabel: "BREAK SIDE · High of Highest Bullish Candle",
+            ruleBadge: "Candle Must Close Above ✓",
+            tone: "break",
+            description:
+              "For the bullish continuation break, an upper wick poking above the marked high is NOT enough. The candle body must close above that high. A wick that pierces the high without closing above it is a stop-hunt against buyers, not a confirmed bullish continuation.",
+          },
+        ],
+        validationTip:
+          "This single asymmetry is why a valid bullish pullback works so well — it filters out stop-hunt pullbacks that sweep the low on the grab side yet have no institutional follow-through close above the high.",
       },
     ],
   },
@@ -133,7 +168,7 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         title:
           "Check if the high (of that lowest bearish candlestick) is grabbed by the pullback candlesticks.",
         explanation:
-          "Verify that a subsequent pullback candlestick (or multi-candle retracement) trades above that marked high — wicking through or closing above it — to sweep buy-side liquidity resting above the anchor bearish candle.",
+          "Verify that a subsequent pullback candlestick (or multi-candle retracement) trades above that marked high — an upper wick sweep alone is sufficient — to collect buy-side liquidity resting above the anchor bearish candle.",
         validationTip:
           "Any bullish candle that stays strictly below the marked high is an inside bar, not a valid pullback.",
       },
@@ -144,9 +179,36 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
         title:
           "Check that after the high (of that lowest bearish candlestick) is grabbed, the low (of that lowest bearish candlestick) is broken.",
         explanation:
-          "Once the high of the lowest bearish candlestick has been grabbed, confirm that sellers regain control and push price down to break the low of that lowest bearish candlestick. That break confirms the completed bearish pullback and trend continuation.",
+          "Once the high of the lowest bearish candlestick has been grabbed, confirm that sellers regain control and push price down to break the low of that lowest bearish candlestick with a candle close below it. That break confirms the completed bearish pullback and trend continuation.",
         validationTip:
-          "Sequence matters: first the high is grabbed by the pullback, then the low is broken on continuation.",
+          "Sequence matters: first the high is grabbed by the pullback, then the low is broken on bearish continuation.",
+      },
+      {
+        id: "bear-5",
+        roman: "(V)",
+        stepNumber: 5,
+        title:
+          "Wick Grab vs Closing Break — The Asymmetry Rule: verify a wick grab above the high AND a full candle close below the low.",
+        explanation:
+          "The asymmetric rule for a valid bearish pullback is what separates a real institutional retracement from a stop-hunt or fake-out.",
+        asymmetryCards: [
+          {
+            sideLabel: "GRAB SIDE · High of Lowest Bearish Candle",
+            ruleBadge: "Wick Is Enough ✓",
+            tone: "grab",
+            description:
+              "In a bearish leg, smart money frequently sweeps above the marked high of the lowest bearish candlestick with just an upper wick to trigger resting buy stops. That wick sweep alone qualifies as the grab — a candle body close above the high is NOT required.",
+          },
+          {
+            sideLabel: "BREAK SIDE · Low of Lowest Bearish Candle",
+            ruleBadge: "Candle Must Close Below ✓",
+            tone: "break",
+            description:
+              "For the bearish continuation break, a lower wick poking below the marked low is NOT enough. The candle body must close below that low. A wick that pierces the low without closing below it is a stop-hunt against sellers, not a confirmed bearish continuation.",
+          },
+        ],
+        validationTip:
+          "This single asymmetry is why a valid bearish pullback works so well — it filters out stop-hunt pullbacks that sweep the high on the grab side yet have no institutional follow-through close below the low.",
       },
     ],
   },
@@ -256,7 +318,6 @@ export default function PullbackStrategyPage() {
   }
 
   async function handleUploadStepFiles(stepId: string, files: File[]) {
-    // Pre-validate all files against the 10 MB limit before uploading
     for (const file of files) {
       const validationError = validateReferenceFile(file);
       if (validationError) {
@@ -636,14 +697,58 @@ export default function PullbackStrategyPage() {
                 >
                   <div className="overflow-hidden">
                     <div className="border-t border-slate-800/80 px-4 pb-4 pt-4 sm:pl-12">
-                      <div className="grid gap-4 lg:grid-cols-12 lg:items-center">
+                      <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
                         <div className="lg:col-span-7 space-y-3">
-                          <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
+                          <p className="text-xs sm:text-sm leading-relaxed text-slate-200">
                             {step.explanation}
                           </p>
-                          <div className="rounded-lg border border-slate-800 bg-[#080B10] px-3 py-2 text-xs text-slate-400">
+
+                          {/* Optional Grab Side vs Break Side Breakdown Cards (Step V Asymmetry Rule) */}
+                          {step.asymmetryCards && (
+                            <div className="grid gap-2.5 sm:grid-cols-2">
+                              {step.asymmetryCards.map((card) => {
+                                const isGrab = card.tone === "grab";
+                                return (
+                                  <div
+                                    key={card.sideLabel}
+                                    className={`rounded-xl border p-3 ${
+                                      isGrab
+                                        ? "border-amber-500/25 bg-amber-500/[0.05]"
+                                        : isBullish
+                                        ? "border-emerald-500/25 bg-emerald-500/[0.06]"
+                                        : "border-rose-500/25 bg-rose-500/[0.06]"
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                                      <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                                        {card.sideLabel}
+                                      </span>
+                                      <span
+                                        className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold border ${
+                                          isGrab
+                                            ? "border-amber-500/30 bg-amber-500/15 text-amber-300"
+                                            : isBullish
+                                            ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                                            : "border-rose-500/30 bg-rose-500/15 text-rose-300"
+                                        }`}
+                                      >
+                                        {card.ruleBadge}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs leading-relaxed text-slate-300">
+                                      {card.description}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          <div className="rounded-lg border border-slate-800 bg-[#080B10] px-3 py-2.5 text-xs leading-relaxed text-slate-400">
                             <strong className="font-semibold text-slate-200">
-                              Chart Check:{" "}
+                              {step.asymmetryCards
+                                ? "Why It Works: "
+                                : "Chart Check: "}
                             </strong>
                             {step.validationTip}
                           </div>
@@ -692,9 +797,9 @@ export default function PullbackStrategyPage() {
                 }`}
               />
               <span>
-                Valid {isBullish ? "Bullish" : "Bearish"} Pullback Confirmed (4/4
-                conditions verified). Setup satisfies Pullback Strategy
-                structure.
+                Valid {isBullish ? "Bullish" : "Bearish"} Pullback Confirmed (
+                {totalSteps}/{totalSteps} conditions verified). Setup satisfies
+                Pullback Strategy structure &amp; Asymmetry Rule.
               </span>
             </div>
           </div>
