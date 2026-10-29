@@ -87,9 +87,9 @@ create policy "Users can delete own pullback reference files"
 create table if not exists public.pullback_checklist_images (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  market text not null check (market in ('bullish', 'bearish')),
+  market text not null check (market in ('bullish', 'bearish', 'catching')),
   step_id text not null check (
-    step_id ~ '^(bull|bear)-(flow-)?[1-9][0-9]*$'
+    step_id ~ '^(bull|bear|catch)-(flow-)?[1-9][0-9]*$'
   ),
   storage_path text not null unique,
   file_name text not null,

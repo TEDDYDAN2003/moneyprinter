@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type { MarketDirection } from "@/components/PullbackStepDiagram";
 
+export type ReferenceMarketScope = MarketDirection | "catching";
+
 export const PULLBACK_BUCKET = "pullback-references";
 export const MAX_FILE_SIZE_MB = 10;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024; // 10,485,760 bytes
@@ -17,7 +19,7 @@ export const ALLOWED_IMAGE_MIME_TYPES = new Set([
 
 export interface ChecklistReferenceImage {
   id: string;
-  market: MarketDirection;
+  market: ReferenceMarketScope;
   stepId: string;
   fileName: string;
   mimeType: string;
@@ -70,7 +72,7 @@ const IDB_STORE = "checklist_images";
 
 interface StoredPreviewRecord {
   id: string;
-  market: MarketDirection;
+  market: ReferenceMarketScope;
   stepId: string;
   fileName: string;
   mimeType: string;
@@ -135,7 +137,7 @@ async function listPreviewReferences(): Promise<
 }
 
 async function uploadPreviewReference(
-  market: MarketDirection,
+  market: ReferenceMarketScope,
   stepId: string,
   file: File
 ): Promise<ChecklistReferenceImage> {
@@ -256,7 +258,7 @@ export async function fetchAllChecklistReferences(): Promise<{
 
     const item: ChecklistReferenceImage = {
       id: row.id,
-      market: row.market as MarketDirection,
+      market: row.market as ReferenceMarketScope,
       stepId: row.step_id,
       fileName: row.file_name,
       mimeType: row.mime_type,
@@ -275,7 +277,7 @@ export async function fetchAllChecklistReferences(): Promise<{
 }
 
 export async function uploadChecklistReference(
-  market: MarketDirection,
+  market: ReferenceMarketScope,
   stepId: string,
   file: File
 ): Promise<ChecklistReferenceImage> {
@@ -346,7 +348,7 @@ export async function uploadChecklistReference(
 
   return {
     id: inserted.id,
-    market: inserted.market as MarketDirection,
+    market: inserted.market as ReferenceMarketScope,
     stepId: inserted.step_id,
     fileName: inserted.file_name,
     mimeType: inserted.mime_type,

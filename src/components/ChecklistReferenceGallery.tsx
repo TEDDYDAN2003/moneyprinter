@@ -15,11 +15,11 @@ import {
   formatFileSize,
   MAX_FILE_SIZE_MB,
   type ChecklistReferenceImage,
+  type ReferenceMarketScope,
 } from "@/lib/pullbackReferences";
-import type { MarketDirection } from "./PullbackStepDiagram";
 
 interface ChecklistReferenceGalleryProps {
-  market: MarketDirection;
+  market: ReferenceMarketScope;
   stepId: string;
   stepRoman: string;
   isEditing: boolean;

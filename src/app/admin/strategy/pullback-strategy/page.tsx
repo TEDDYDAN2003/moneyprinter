@@ -10,6 +10,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Clock,
+  Crosshair,
   ExternalLink,
   Globe2,
   Images,
@@ -31,12 +32,14 @@ import {
   type TradeFlowVisualKind,
 } from "@/components/TradeFlowDiagram";
 import { ChecklistReferenceGallery } from "@/components/ChecklistReferenceGallery";
+import { CatchingPullbacksSection } from "@/components/CatchingPullbacksSection";
 import {
   fetchAllChecklistReferences,
   removeChecklistReference,
   uploadChecklistReference,
   validateReferenceFile,
   type ChecklistReferenceImage,
+  type ReferenceMarketScope,
 } from "@/lib/pullbackReferences";
 
 interface AsymmetryBreakdownCard {
@@ -528,7 +531,9 @@ const PULLBACK_CONFIG: Record<MarketDirection, MarketPullbackConfig> = {
 };
 
 export default function PullbackStrategyPage() {
-  const [market, setMarket] = useState<MarketDirection>("bullish");
+  const [activeTab, setActiveTab] = useState<ReferenceMarketScope>("bullish");
+  const market: MarketDirection =
+    activeTab === "bearish" ? "bearish" : "bullish";
 
   // Edit mode is OFF by default — users must click 'Edit' in the chosen pullback market header to upload
   const [isEditMode, setIsEditMode] = useState(false);
@@ -583,8 +588,8 @@ export default function PullbackStrategyPage() {
     (s) => expandedIds[s.id]
   );
 
-  function handleSelectMarket(nextMarket: MarketDirection) {
-    setMarket(nextMarket);
+  function handleSelectTab(nextTab: ReferenceMarketScope) {
+    setActiveTab(nextTab);
     setIsEditMode(false);
   }
 
@@ -676,9 +681,17 @@ export default function PullbackStrategyPage() {
       }
     }
 
+    const storageScope: ReferenceMarketScope = stepId.startsWith("catch-")
+      ? "catching"
+      : market;
+
     const uploadedItems: ChecklistReferenceImage[] = [];
     for (const file of files) {
-      const created = await uploadChecklistReference(market, stepId, file);
+      const created = await uploadChecklistReference(
+        storageScope,
+        stepId,
+        file
+      );
       uploadedItems.push(created);
     }
 
@@ -701,8 +714,8 @@ export default function PullbackStrategyPage() {
 
   return (
     <div className="space-y-7">
-      {/* Screen Header with Bullish / Bearish Market Selector */}
-      <div className="flex flex-col gap-4 border-b border-slate-800/80 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      {/* Screen Header with 3 Tabs: Bullish Market, Bearish Market, Catching Pullbacks */}
+      <div className="flex flex-col gap-4 border-b border-slate-800/80 pb-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase tracking-widest text-emerald-400">
@@ -717,31 +730,31 @@ export default function PullbackStrategyPage() {
             Pullback Strategy
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Select market direction, verify valid pullback structure, and run
-            the 11-step execution flow.
+            Verify valid pullback structure by market direction or study the 8
+            confluence techniques for catching pullbacks.
           </p>
         </div>
 
-        {/* Header Market Mode Options: Bullish vs Bearish Market */}
+        {/* Header 3-Tab Mode Selector */}
         <div
           role="tablist"
-          aria-label="Market Direction"
-          className="inline-grid grid-cols-2 gap-1.5 rounded-xl border border-slate-800 bg-[#0B0F16] p-1.5 self-start sm:self-auto"
+          aria-label="Pullback Strategy Views"
+          className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-800 bg-[#0B0F16] p-1.5 self-start lg:self-auto"
         >
           <button
             type="button"
             role="tab"
-            aria-selected={isBullish}
-            onClick={() => handleSelectMarket("bullish")}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all ${
-              isBullish
+            aria-selected={activeTab === "bullish"}
+            onClick={() => handleSelectTab("bullish")}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
+              activeTab === "bullish"
                 ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 shadow-[0_0_20px_rgba(16,185,129,0.12)]"
                 : "text-slate-400 hover:text-slate-200 border border-transparent"
             }`}
           >
             <TrendingUp
               className={`h-4 w-4 ${
-                isBullish ? "text-emerald-400" : "text-slate-500"
+                activeTab === "bullish" ? "text-emerald-400" : "text-slate-500"
               }`}
             />
             <span>Bullish Market</span>
@@ -750,24 +763,61 @@ export default function PullbackStrategyPage() {
           <button
             type="button"
             role="tab"
-            aria-selected={!isBullish}
-            onClick={() => handleSelectMarket("bearish")}
-            className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-all ${
-              !isBullish
+            aria-selected={activeTab === "bearish"}
+            onClick={() => handleSelectTab("bearish")}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
+              activeTab === "bearish"
                 ? "bg-rose-500/15 text-rose-300 border border-rose-500/35 shadow-[0_0_20px_rgba(244,63,94,0.12)]"
                 : "text-slate-400 hover:text-slate-200 border border-transparent"
             }`}
           >
             <TrendingDown
               className={`h-4 w-4 ${
-                !isBullish ? "text-rose-400" : "text-slate-500"
+                activeTab === "bearish" ? "text-rose-400" : "text-slate-500"
               }`}
             />
             <span>Bearish Market</span>
           </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "catching"}
+            onClick={() => handleSelectTab("catching")}
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
+              activeTab === "catching"
+                ? "bg-cyan-500/15 text-cyan-200 border border-cyan-500/40 shadow-[0_0_20px_rgba(34,211,238,0.14)]"
+                : "text-slate-400 hover:text-slate-200 border border-transparent"
+            }`}
+          >
+            <Crosshair
+              className={`h-4 w-4 ${
+                activeTab === "catching" ? "text-cyan-400" : "text-slate-500"
+              }`}
+            />
+            <span>Catching Pullbacks</span>
+          </button>
         </div>
       </div>
 
+      {activeTab === "catching" ? (
+        <>
+          {migrationHint && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <span>{migrationHint}</span>
+            </div>
+          )}
+          <CatchingPullbacksSection
+            isEditMode={isEditMode}
+            onToggleEditMode={() => setIsEditMode((prev) => !prev)}
+            referencesByStep={referencesByStep}
+            onUploadFiles={handleUploadStepFiles}
+            onDeleteImage={handleDeleteStepImage}
+          />
+        </>
+      ) : (
+        <>
       {/* Part 1 (Always Visible in Both Bullish & Bearish): Core Pullback Definition */}
       <section
         aria-labelledby="pullback-definition-heading"
@@ -1737,6 +1787,8 @@ export default function PullbackStrategyPage() {
           ))}
         </ol>
       </section>
+        </>
+      )}
     </div>
   );
 }
