@@ -2,13 +2,16 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  AlertTriangle,
   BookOpenCheck,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Clock,
   ExternalLink,
+  Globe2,
   Images,
   Info,
   Lightbulb,
@@ -1469,6 +1472,209 @@ export default function PullbackStrategyPage() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* Non-Checklist Reference Sections: Best Timeframe & Best Pairs */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Best Timeframe for Valid Pullback */}
+        <section
+          aria-labelledby="best-timeframe-heading"
+          className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 flex flex-col justify-between"
+        >
+          <div>
+            <div className="mb-3.5 flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700/80 bg-[#090D13] text-emerald-400">
+                <Clock className="h-4 w-4" />
+              </div>
+              <h2
+                id="best-timeframe-heading"
+                className="text-base sm:text-lg font-bold text-white"
+              >
+                Best Timeframe for Valid Pullback
+              </h2>
+            </div>
+
+            <p className="text-sm leading-relaxed text-slate-300">
+              Valid pullback works on every timeframe. For day trading, mark
+              valid pullbacks on the 15-minute or 1-hour and use the 1-day and
+              4-hour for the directional context. For swing trading, use the
+              4-hour and daily for the pullback marking and the daily / weekly
+              for the bias.
+            </p>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 pt-2">
+            <div className="rounded-xl border border-slate-800/90 bg-[#090D13] p-3.5">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
+                Day Trading
+              </span>
+              <p className="mt-1.5 text-xs text-slate-300">
+                <strong className="text-white">Pullback:</strong> 15M / 1H
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                <strong className="text-slate-300">Context Bias:</strong> 1D / 4H
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800/90 bg-[#090D13] p-3.5">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
+                Swing Trading
+              </span>
+              <p className="mt-1.5 text-xs text-slate-300">
+                <strong className="text-white">Pullback:</strong> 4H / 1D
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                <strong className="text-slate-300">Context Bias:</strong> 1D / 1W
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Best Pairs for Valid Pullback Analysis */}
+        <section
+          aria-labelledby="best-pairs-heading"
+          className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 flex flex-col justify-between"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700/80 bg-[#090D13] text-emerald-400">
+                <Globe2 className="h-4 w-4" />
+              </div>
+              <h2
+                id="best-pairs-heading"
+                className="text-base sm:text-lg font-bold text-white"
+              >
+                Best Pairs for Valid Pullback Analysis
+              </h2>
+            </div>
+
+            <p className="text-sm leading-relaxed text-slate-300">
+              Valid pullback is timeframe-agnostic and instrument-agnostic — it
+              works on every major pair (GBP/USD, EUR/USD, USD/CAD), metals
+              (XAU/USD, XAG/USD) and indices.
+            </p>
+
+            <p className="text-xs sm:text-sm leading-relaxed text-slate-300">
+              <strong className="font-semibold text-white">
+                For traders in the United States
+              </strong>{" "}
+              who follow the CFTC FIFO and no-hedge rules, the valid pullback
+              framework maps cleanly onto NQ and ES futures (CME Group) plus
+              regulated forex pairs through US-based brokers. The 09:50 NY-AM{" "}
+              <a
+                href="https://innercircletrader.net/tutorials/ict-macro-time-based-strategy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-semibold text-emerald-400 underline decoration-emerald-500/40 underline-offset-2 hover:text-emerald-300"
+              >
+                macro window
+                <ExternalLink className="h-3 w-3" />
+              </a>{" "}
+              is a particularly strong place to watch for valid pullbacks
+              because the algorithmic delivery is most concentrated there.
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-1.5 pt-2">
+            {[
+              "GBP/USD",
+              "EUR/USD",
+              "USD/CAD",
+              "XAU/USD",
+              "XAG/USD",
+              "NQ Futures",
+              "ES Futures",
+              "09:50 NY-AM Macro",
+            ].map((tag) => (
+              <span
+                key={tag}
+                className="rounded-lg border border-slate-800 bg-[#090D13] px-2.5 py-1 font-mono text-[11px] text-slate-300"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* Non-Checklist Reference Section: Common Mistakes Around Valid Pullback */}
+      <section
+        aria-labelledby="common-mistakes-heading"
+        className="rounded-2xl border border-rose-500/20 bg-[#0E131B] p-6"
+      >
+        <div className="border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400">
+              <AlertTriangle className="h-4 w-4" />
+            </div>
+            <div>
+              <h2
+                id="common-mistakes-heading"
+                className="text-base sm:text-lg font-bold text-white"
+              >
+                Common Mistakes Around Valid Pullback
+              </h2>
+              <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
+                These are the recurring mistakes traders make when first
+                identifying valid pullbacks.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <ol className="mt-5 grid gap-3.5 md:grid-cols-2">
+          {[
+            {
+              num: 1,
+              title: "Treating every retracement as a valid pullback.",
+              desc: "A retracement is just a counter-color candle. A valid pullback requires both the grab AND the break to occur in sequence.",
+            },
+            {
+              num: 2,
+              title: "Marking the wrong reference candle.",
+              desc: "Use the MOST EXTREME opposite-color candle — the highest bullish candle in a bullish leg, the lowest bearish candle in a bearish leg. Not the most recent one.",
+            },
+            {
+              num: 3,
+              title: "Requiring a closing break for the grab.",
+              desc: "The grab side accepts a wick. Requiring a closing break disqualifies real institutional sweeps.",
+            },
+            {
+              num: 4,
+              title: "Accepting a wick for the break.",
+              desc: isBullish
+                ? "The break side requires a close. A wick above the high (in a bullish leg) without a close is a stop hunt against the new direction — not a valid pullback confirmation."
+                : "The break side requires a close. A wick below the low (in a bearish leg) — or above the high in a bullish leg — without a close is a stop hunt against the new direction — not a valid pullback confirmation.",
+            },
+            {
+              num: 5,
+              title: "Entering at the valid pullback before the break confirms.",
+              desc: "The valid pullback is only valid AFTER the break candle closes. Entering at the grab and waiting for the break exposes you to the failed-pullback scenario.",
+            },
+            {
+              num: 6,
+              title: "Skipping the higher-timeframe bias.",
+              desc: "Valid pullbacks work best in the direction of the higher-timeframe trend. Counter-trend valid pullbacks have a much lower hit rate.",
+            },
+          ].map((mistake) => (
+            <li
+              key={mistake.num}
+              className="flex items-start gap-3.5 rounded-xl border border-slate-800/90 bg-[#090D13] p-4"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-rose-500/30 bg-rose-500/10 font-mono text-xs font-bold text-rose-300">
+                {mistake.num}
+              </span>
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-white">
+                  {mistake.title}
+                </h3>
+                <p className="text-xs leading-relaxed text-slate-400">
+                  {mistake.desc}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </section>
     </div>
   );
