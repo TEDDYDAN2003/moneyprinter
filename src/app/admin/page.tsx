@@ -82,13 +82,14 @@ export default async function AdminOverviewPage({
               Trading Journal
             </h2>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Dedicated log for tracking win rate, risk per trade, stake size,
-              opening price, closing price, and realized outcomes.
+              Log new executions with the header + button: symbol, buy/sell
+              type, lot size, TP &amp; SL, opening/closing prices, date/time,
+              and leverage.
             </p>
           </div>
 
           <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
-            <span>Open Journal Shell</span>
+            <span>Open Trading Journal</span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>
@@ -195,6 +196,10 @@ export default async function AdminOverviewPage({
               file: "supabase/migrations/*_storage.sql",
               desc: "10 MB private 'pullback-references' bucket & RLS policies",
             },
+            {
+              file: "supabase/migrations/*_trading_journal.sql",
+              desc: "Journal entries table & user-scoped RLS policies",
+            },
           ].map((item) => (
             <div
               key={item.file}
@@ -228,14 +233,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key`}
         )}
       </div>
 
-      {/* Ready prompt footer */}
+      {/* Ready status footer */}
       <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-slate-300">
         <CheckSquare className="h-4 w-4 shrink-0 text-emerald-400" />
         <span>
-          Ready for Phase 2 — share your exact{" "}
-          <strong className="text-white">Pullback Strategy checklist</strong>{" "}
-          and <strong className="text-white">Trading Journal fields</strong>{" "}
-          whenever you&apos;re ready.
+          All core modules active:{" "}
+          <strong className="text-white">Trading Journal</strong>,{" "}
+          <strong className="text-white">Pullback Strategy</strong>, and{" "}
+          <strong className="text-white">Live Global Timezones (EAT)</strong>.
         </span>
       </div>
     </div>
