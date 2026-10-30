@@ -4,6 +4,7 @@
 --   - 20261029000000_init_profiles.sql
 --   - 20261029000001_pullback_checklist_storage.sql
 --   - 20261030000002_trading_journal.sql
+--   - 20261030000003_journal_cashflow_and_screenshots.sql
 -- ============================================================================
 
 -- 1. Profiles Table
@@ -171,6 +172,7 @@ create policy "Users can delete own checklist reference metadata"
 create table if not exists public.journal_entries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
+  account_type text not null default 'real' check (account_type in ('real', 'demo')),
   symbol text not null check (char_length(trim(symbol)) > 0),
   trade_type text not null check (trade_type in ('buy', 'sell')),
   lot_size numeric(12, 4) not null check (lot_size > 0),
@@ -186,7 +188,7 @@ create table if not exists public.journal_entries (
 );
 
 create index if not exists idx_journal_entries_user_traded_at
-  on public.journal_entries (user_id, traded_at desc);
+  on public.journal_entries (user_id, account_type, traded_at desc);
 
 alter table public.journal_entries enable row level security;
 
@@ -215,6 +217,165 @@ create policy "Users can update own journal entries"
 drop policy if exists "Users can delete own journal entries" on public.journal_entries;
 create policy "Users can delete own journal entries"
   on public.journal_entries
+  for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+-- 5. Journal Deposits & Withdrawals Ledger Table
+create table if not exists public.journal_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  account_type text not null default 'real' check (account_type in ('real', 'demo')),
+  tx_type text not null check (tx_type in ('deposit', 'withdrawal')),
+  amount numeric(16, 2) not null check (amount > 0),
+  note text,
+  transacted_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_journal_transactions_user_account_date
+  on public.journal_transactions (user_id, account_type, transacted_at desc);
+
+alter table public.journal_transactions enable row level security;
+
+drop policy if exists "Users can view own journal transactions" on public.journal_transactions;
+create policy "Users can view own journal transactions"
+  on public.journal_transactions
+  for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert own journal transactions" on public.journal_transactions;
+create policy "Users can insert own journal transactions"
+  on public.journal_transactions
+  for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can update own journal transactions" on public.journal_transactions;
+create policy "Users can update own journal transactions"
+  on public.journal_transactions
+  for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete own journal transactions" on public.journal_transactions;
+create policy "Users can delete own journal transactions"
+  on public.journal_transactions
+  for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+-- 6. Private Storage Bucket 'journal-screenshots' (Max 10 MB)
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'journal-screenshots',
+  'journal-screenshots',
+  false,
+  10485760, -- 10 MB
+  array[
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/webp',
+    'image/gif',
+    'image/svg+xml'
+  ]
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Users can view own journal screenshots" on storage.objects;
+create policy "Users can view own journal screenshots"
+  on storage.objects
+  for select
+  to authenticated
+  using (
+    bucket_id = 'journal-screenshots'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can upload own journal screenshots" on storage.objects;
+create policy "Users can upload own journal screenshots"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (
+    bucket_id = 'journal-screenshots'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can update own journal screenshots" on storage.objects;
+create policy "Users can update own journal screenshots"
+  on storage.objects
+  for update
+  to authenticated
+  using (
+    bucket_id = 'journal-screenshots'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  )
+  with check (
+    bucket_id = 'journal-screenshots'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+drop policy if exists "Users can delete own journal screenshots" on storage.objects;
+create policy "Users can delete own journal screenshots"
+  on storage.objects
+  for delete
+  to authenticated
+  using (
+    bucket_id = 'journal-screenshots'
+    and (storage.foldername(name))[1] = (select auth.uid()::text)
+  );
+
+-- 7. Journal Entry Screenshots Metadata Table
+create table if not exists public.journal_entry_screenshots (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  journal_entry_id uuid not null references public.journal_entries (id) on delete cascade,
+  storage_path text not null unique,
+  file_name text not null,
+  mime_type text not null,
+  file_size_bytes bigint not null check (
+    file_size_bytes > 0 and file_size_bytes <= 10485760
+  ),
+  caption text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_journal_entry_screenshots_entry
+  on public.journal_entry_screenshots (user_id, journal_entry_id, created_at asc);
+
+alter table public.journal_entry_screenshots enable row level security;
+
+drop policy if exists "Users can read own journal screenshot metadata" on public.journal_entry_screenshots;
+create policy "Users can read own journal screenshot metadata"
+  on public.journal_entry_screenshots
+  for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can insert own journal screenshot metadata" on public.journal_entry_screenshots;
+create policy "Users can insert own journal screenshot metadata"
+  on public.journal_entry_screenshots
+  for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete own journal screenshot metadata" on public.journal_entry_screenshots;
+create policy "Users can delete own journal screenshot metadata"
+  on public.journal_entry_screenshots
   for delete
   to authenticated
   using ((select auth.uid()) = user_id);

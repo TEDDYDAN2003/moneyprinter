@@ -1,11 +1,27 @@
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
+export type AccountType = "real" | "demo";
 export type TradeType = "buy" | "sell";
 export type TradeOutcome = "open" | "win" | "loss" | "breakeven";
+export type CashflowType = "deposit" | "withdrawal";
+
+export const JOURNAL_SCREENSHOTS_BUCKET = "journal-screenshots";
+export const MAX_SCREENSHOT_SIZE_MB = 10;
+export const MAX_SCREENSHOT_SIZE_BYTES = MAX_SCREENSHOT_SIZE_MB * 1024 * 1024; // 10,485,760 bytes
+
+const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+  "image/svg+xml",
+]);
 
 export interface JournalEntry {
   id: string;
+  accountType: AccountType;
   symbol: string;
   tradeType: TradeType;
   lotSize: number;
@@ -22,6 +38,7 @@ export interface JournalEntry {
 }
 
 export interface JournalEntryInput {
+  accountType: AccountType;
   symbol: string;
   tradeType: TradeType;
   lotSize: number;
@@ -32,6 +49,38 @@ export interface JournalEntryInput {
   leverage: number;
   tradedAt: string;
   notes?: string | null;
+}
+
+export interface CashflowTransaction {
+  id: string;
+  accountType: AccountType;
+  txType: CashflowType;
+  amount: number;
+  note: string | null;
+  transactedAt: string;
+  createdAt: string;
+  isLocalPreview?: boolean;
+}
+
+export interface CashflowTransactionInput {
+  accountType: AccountType;
+  txType: CashflowType;
+  amount: number;
+  note?: string | null;
+  transactedAt: string;
+}
+
+export interface JournalScreenshot {
+  id: string;
+  journalEntryId: string;
+  fileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  storagePath: string;
+  url: string;
+  caption?: string | null;
+  createdAt: string;
+  isLocalPreview?: boolean;
 }
 
 export interface ComputedTradeMetrics {
@@ -46,6 +95,19 @@ export interface ComputedTradeMetrics {
   realizedPnlUsd: number | null;
   realizedMoveLabel: string | null;
   outcome: TradeOutcome;
+}
+
+export interface AccountBalanceSummary {
+  totalDeposits: number;
+  totalWithdrawals: number;
+  netFloat: number;
+  realizedPnl: number;
+  currentBalance: number;
+  returnOnFloatPct: number | null;
+  openUsedMargin: number;
+  freeMargin: number;
+  depositCount: number;
+  withdrawalCount: number;
 }
 
 export const POPULAR_SYMBOLS = [
@@ -99,6 +161,36 @@ export function normalizeSymbol(raw: string): string {
   return cleaned;
 }
 
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+export function validateJournalScreenshot(file: File): string | null {
+  if (!file || file.size <= 0) {
+    return `"${file?.name || "File"}" is empty.`;
+  }
+  if (file.size > MAX_SCREENSHOT_SIZE_BYTES) {
+    return `"${file.name}" (${formatBytes(
+      file.size
+    )}) exceeds the maximum 10 MB limit.`;
+  }
+  if (!ALLOWED_SCREENSHOT_MIME_TYPES.has(file.type)) {
+    return `"${file.name}" has an unsupported format (${
+      file.type || "unknown"
+    }). Please upload PNG, JPG, WEBP, GIF, or SVG.`;
+  }
+  return null;
+}
+
+function sanitizeFileName(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
+}
+
 interface InstrumentSpec {
   kind:
     | "gold"
@@ -121,8 +213,8 @@ function getInstrumentSpec(symbol: string): InstrumentSpec {
   if (key === "XAUUSD" || key === "GOLD") {
     return {
       kind: "gold",
-      contractSize: 100, // 1.00 lot = 100 troy oz (0.01 lot = 1 oz)
-      pipSize: 0.1, // $0.10 = 1 pip on Gold ($1.00 = 10 pips)
+      contractSize: 100,
+      pipSize: 0.1,
       unitName: "pts",
       contractLabel: "100 oz / lot",
     };
@@ -154,7 +246,7 @@ function getInstrumentSpec(symbol: string): InstrumentSpec {
   ) {
     return {
       kind: "index_or_crypto",
-      contractSize: 1, // Standard 1 contract per 1.00 CFD lot (0.01 lot = $0.01/pt)
+      contractSize: 1,
       pipSize: 1,
       unitName: "pts",
       contractLabel: "1 unit / lot",
@@ -211,7 +303,6 @@ function getInstrumentSpec(symbol: string): InstrumentSpec {
     };
   }
 
-  // Fallback for custom CFDs / stocks / commodities
   return {
     kind: "index_or_crypto",
     contractSize: 1,
@@ -247,11 +338,9 @@ function calcUsdDelta(
     }
 
     case "fx_cross_jpy":
-      // Standard JPY cross conversion (~150 USD/JPY reference)
       return (signedDiff / 150) * spec.contractSize * lotSize;
 
     case "fx_cross":
-      // Standard FX cross approximation (~$10/pip per 1.00 lot)
       return signedDiff * spec.contractSize * lotSize;
   }
 }
@@ -264,7 +353,6 @@ function calcNotionalUsd(
   switch (spec.kind) {
     case "fx_usd_base":
     case "fx_usd_jpy":
-      return spec.contractSize * lotSize;
     case "fx_cross_jpy":
     case "fx_cross":
       return spec.contractSize * lotSize;
@@ -279,7 +367,6 @@ function formatMoveDistance(
   withSign = false
 ): string {
   if (spec.kind === "gold") {
-    // Show Gold move in $ points (e.g. +$11.50 / 115 pips)
     const sign = withSign && priceDiff > 0 ? "+" : "";
     return `${sign}${priceDiff.toFixed(2)} pts`;
   }
@@ -300,20 +387,28 @@ export function computeTradeMetrics(entry: {
   leverage: number;
 }): ComputedTradeMetrics {
   const spec = getInstrumentSpec(entry.symbol);
-  const safeLots = Number.isFinite(entry.lotSize) && entry.lotSize > 0 ? entry.lotSize : 0;
+  const safeLots =
+    Number.isFinite(entry.lotSize) && entry.lotSize > 0 ? entry.lotSize : 0;
   const safeOpen =
     Number.isFinite(entry.openingPrice) && entry.openingPrice > 0
       ? entry.openingPrice
       : 0;
   const safeLev =
-    Number.isFinite(entry.leverage) && entry.leverage >= 1 ? entry.leverage : 500;
+    Number.isFinite(entry.leverage) && entry.leverage >= 1
+      ? entry.leverage
+      : 500;
 
   const notionalUsd = calcNotionalUsd(spec, safeOpen, safeLots);
   const usedMarginUsd = safeLev > 0 ? notionalUsd / safeLev : 0;
 
   let plannedRiskUsd: number | null = null;
   let slMoveLabel: string | null = null;
-  if (entry.stopLoss !== null && entry.stopLoss > 0 && safeOpen > 0 && safeLots > 0) {
+  if (
+    entry.stopLoss !== null &&
+    entry.stopLoss > 0 &&
+    safeOpen > 0 &&
+    safeLots > 0
+  ) {
     const pnlAtSl = calcUsdDelta(
       spec,
       safeOpen,
@@ -321,14 +416,18 @@ export function computeTradeMetrics(entry: {
       safeLots,
       entry.tradeType
     );
-    // Risk is positive when SL is on the loss side; negative if SL is trailed into profit
     plannedRiskUsd = -pnlAtSl;
     slMoveLabel = formatMoveDistance(spec, Math.abs(safeOpen - entry.stopLoss));
   }
 
   let plannedRewardUsd: number | null = null;
   let tpMoveLabel: string | null = null;
-  if (entry.takeProfit !== null && entry.takeProfit > 0 && safeOpen > 0 && safeLots > 0) {
+  if (
+    entry.takeProfit !== null &&
+    entry.takeProfit > 0 &&
+    safeOpen > 0 &&
+    safeLots > 0
+  ) {
     const pnlAtTp = calcUsdDelta(
       spec,
       safeOpen,
@@ -337,7 +436,10 @@ export function computeTradeMetrics(entry: {
       entry.tradeType
     );
     plannedRewardUsd = pnlAtTp;
-    tpMoveLabel = formatMoveDistance(spec, Math.abs(entry.takeProfit - safeOpen));
+    tpMoveLabel = formatMoveDistance(
+      spec,
+      Math.abs(entry.takeProfit - safeOpen)
+    );
   }
 
   let plannedRR: number | null = null;
@@ -354,7 +456,12 @@ export function computeTradeMetrics(entry: {
   let realizedMoveLabel: string | null = null;
   let outcome: TradeOutcome = "open";
 
-  if (entry.closingPrice !== null && entry.closingPrice > 0 && safeOpen > 0 && safeLots > 0) {
+  if (
+    entry.closingPrice !== null &&
+    entry.closingPrice > 0 &&
+    safeOpen > 0 &&
+    safeLots > 0
+  ) {
     realizedPnlUsd = calcUsdDelta(
       spec,
       safeOpen,
@@ -392,10 +499,69 @@ export function computeTradeMetrics(entry: {
   };
 }
 
+export function computeAccountBalanceSummary(
+  entries: JournalEntry[],
+  transactions: CashflowTransaction[],
+  scope: AccountType
+): AccountBalanceSummary {
+  let totalDeposits = 0;
+  let totalWithdrawals = 0;
+  let depositCount = 0;
+  let withdrawalCount = 0;
+
+  for (const tx of transactions) {
+    if (tx.accountType !== scope) continue;
+    if (tx.txType === "deposit") {
+      totalDeposits += tx.amount;
+      depositCount++;
+    } else {
+      totalWithdrawals += tx.amount;
+      withdrawalCount++;
+    }
+  }
+
+  let realizedPnl = 0;
+  let openUsedMargin = 0;
+
+  for (const entry of entries) {
+    if (entry.accountType !== scope) continue;
+    const m = computeTradeMetrics(entry);
+    if (m.outcome === "open") {
+      openUsedMargin += m.usedMarginUsd;
+    } else if (m.realizedPnlUsd !== null) {
+      realizedPnl += m.realizedPnlUsd;
+    }
+  }
+
+  const netFloat = totalDeposits - totalWithdrawals;
+  const currentBalance = netFloat + realizedPnl;
+  const returnOnFloatPct =
+    totalDeposits > 0 ? (realizedPnl / totalDeposits) * 100 : null;
+  const freeMargin = currentBalance - openUsedMargin;
+
+  return {
+    totalDeposits,
+    totalWithdrawals,
+    netFloat,
+    realizedPnl,
+    currentBalance,
+    returnOnFloatPct,
+    openUsedMargin,
+    freeMargin,
+    depositCount,
+    withdrawalCount,
+  };
+}
+
 export function formatPrice(price: number | null, symbol: string): string {
   if (price === null || !Number.isFinite(price)) return "—";
   const key = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (key === "XAUUSD" || key === "US30" || key === "NAS100" || key.endsWith("JPY")) {
+  if (
+    key === "XAUUSD" ||
+    key === "US30" ||
+    key === "NAS100" ||
+    key.endsWith("JPY")
+  ) {
     return price.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 3,
@@ -424,20 +590,51 @@ export function formatUsd(amount: number, showPlus = false): string {
 }
 
 // ============================================================================
-// IndexedDB Preview & Offline Fallback Store
+// IndexedDB Preview & Offline Fallback Store (v2: entries + transactions + screenshots)
 // ============================================================================
 
 const JOURNAL_IDB_NAME = "moneyprinter_journal_v1";
-const JOURNAL_IDB_STORE = "entries";
+const JOURNAL_IDB_VERSION = 2;
+const STORE_ENTRIES = "entries";
+const STORE_TRANSACTIONS = "transactions";
+const STORE_SCREENSHOTS = "screenshots";
+
+interface LocalStoredScreenshot {
+  id: string;
+  journalEntryId: string;
+  fileName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  storagePath: string;
+  caption?: string | null;
+  createdAt: string;
+  blob: Blob;
+}
 
 function openJournalIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = window.indexedDB.open(JOURNAL_IDB_NAME, 1);
+    const req = window.indexedDB.open(JOURNAL_IDB_NAME, JOURNAL_IDB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(JOURNAL_IDB_STORE)) {
-        const store = db.createObjectStore(JOURNAL_IDB_STORE, { keyPath: "id" });
-        store.createIndex("by_traded_at", "tradedAt", { unique: false });
+      if (!db.objectStoreNames.contains(STORE_ENTRIES)) {
+        const entryStore = db.createObjectStore(STORE_ENTRIES, {
+          keyPath: "id",
+        });
+        entryStore.createIndex("by_traded_at", "tradedAt", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_TRANSACTIONS)) {
+        const txStore = db.createObjectStore(STORE_TRANSACTIONS, {
+          keyPath: "id",
+        });
+        txStore.createIndex("by_transacted_at", "transactedAt", {
+          unique: false,
+        });
+      }
+      if (!db.objectStoreNames.contains(STORE_SCREENSHOTS)) {
+        const shotStore = db.createObjectStore(STORE_SCREENSHOTS, {
+          keyPath: "id",
+        });
+        shotStore.createIndex("by_entry", "journalEntryId", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -445,17 +642,51 @@ function openJournalIdb(): Promise<IDBDatabase> {
   });
 }
 
+function makeUuid(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// --- Local Entries ---
 async function listLocalEntries(): Promise<JournalEntry[]> {
   if (typeof window === "undefined" || !window.indexedDB) return [];
   const db = await openJournalIdb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(JOURNAL_IDB_STORE, "readonly");
-    const store = tx.objectStore(JOURNAL_IDB_STORE);
+    const tx = db.transaction(STORE_ENTRIES, "readonly");
+    const store = tx.objectStore(STORE_ENTRIES);
     const req = store.getAll();
     req.onsuccess = () => {
-      const rows = ((req.result as JournalEntry[]) || []).sort((a, b) =>
-        b.tradedAt.localeCompare(a.tradedAt)
-      );
+      const rows = ((req.result as Partial<JournalEntry>[]) || [])
+        .map(
+          (r): JournalEntry => ({
+            id: r.id || makeUuid(),
+            accountType: r.accountType === "demo" ? "demo" : "real",
+            symbol: r.symbol || "XAU/USD",
+            tradeType: r.tradeType === "sell" ? "sell" : "buy",
+            lotSize: Number(r.lotSize) || 0.01,
+            openingPrice: Number(r.openingPrice) || 0,
+            closingPrice:
+              r.closingPrice !== undefined && r.closingPrice !== null
+                ? Number(r.closingPrice)
+                : null,
+            stopLoss:
+              r.stopLoss !== undefined && r.stopLoss !== null
+                ? Number(r.stopLoss)
+                : null,
+            takeProfit:
+              r.takeProfit !== undefined && r.takeProfit !== null
+                ? Number(r.takeProfit)
+                : null,
+            leverage: Number(r.leverage) || 500,
+            tradedAt: r.tradedAt || new Date().toISOString(),
+            notes: r.notes ?? null,
+            createdAt: r.createdAt || new Date().toISOString(),
+            updatedAt: r.updatedAt || new Date().toISOString(),
+            isLocalPreview: true,
+          })
+        )
+        .sort((a, b) => b.tradedAt.localeCompare(a.tradedAt));
       resolve(rows);
     };
     req.onerror = () => reject(req.error);
@@ -465,8 +696,8 @@ async function listLocalEntries(): Promise<JournalEntry[]> {
 async function saveLocalEntry(entry: JournalEntry): Promise<JournalEntry> {
   const db = await openJournalIdb();
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(JOURNAL_IDB_STORE, "readwrite");
-    const store = tx.objectStore(JOURNAL_IDB_STORE);
+    const tx = db.transaction(STORE_ENTRIES, "readwrite");
+    const store = tx.objectStore(STORE_ENTRIES);
     const req = store.put(entry);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
@@ -477,8 +708,154 @@ async function saveLocalEntry(entry: JournalEntry): Promise<JournalEntry> {
 async function removeLocalEntry(id: string): Promise<void> {
   const db = await openJournalIdb();
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(JOURNAL_IDB_STORE, "readwrite");
-    const store = tx.objectStore(JOURNAL_IDB_STORE);
+    const tx = db.transaction([STORE_ENTRIES, STORE_SCREENSHOTS], "readwrite");
+    tx.objectStore(STORE_ENTRIES).delete(id);
+    // Clean up local screenshots linked to this trade
+    const shotStore = tx.objectStore(STORE_SCREENSHOTS);
+    const idx = shotStore.index("by_entry");
+    const cursorReq = idx.openCursor(IDBKeyRange.only(id));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// --- Local Cashflow Transactions ---
+async function listLocalTransactions(): Promise<CashflowTransaction[]> {
+  if (typeof window === "undefined" || !window.indexedDB) return [];
+  const db = await openJournalIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_TRANSACTIONS, "readonly");
+    const store = tx.objectStore(STORE_TRANSACTIONS);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const rows = ((req.result as CashflowTransaction[]) || []).sort((a, b) =>
+        b.transactedAt.localeCompare(a.transactedAt)
+      );
+      resolve(rows);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveLocalTransaction(
+  item: CashflowTransaction
+): Promise<CashflowTransaction> {
+  const db = await openJournalIdb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_TRANSACTIONS, "readwrite");
+    const store = tx.objectStore(STORE_TRANSACTIONS);
+    const req = store.put(item);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+  return item;
+}
+
+async function removeLocalTransaction(id: string): Promise<void> {
+  const db = await openJournalIdb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_TRANSACTIONS, "readwrite");
+    const store = tx.objectStore(STORE_TRANSACTIONS);
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- Local Screenshots ---
+async function listLocalScreenshots(): Promise<
+  Record<string, JournalScreenshot[]>
+> {
+  if (typeof window === "undefined" || !window.indexedDB) return {};
+  const db = await openJournalIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCREENSHOTS, "readonly");
+    const store = tx.objectStore(STORE_SCREENSHOTS);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const rows = ((req.result as LocalStoredScreenshot[]) || []).sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt)
+      );
+      const byEntry: Record<string, JournalScreenshot[]> = {};
+      for (const row of rows) {
+        const item: JournalScreenshot = {
+          id: row.id,
+          journalEntryId: row.journalEntryId,
+          fileName: row.fileName,
+          mimeType: row.mimeType,
+          fileSizeBytes: row.fileSizeBytes,
+          storagePath: row.storagePath,
+          url: URL.createObjectURL(row.blob),
+          caption: row.caption ?? null,
+          createdAt: row.createdAt,
+          isLocalPreview: true,
+        };
+        if (!byEntry[row.journalEntryId]) byEntry[row.journalEntryId] = [];
+        byEntry[row.journalEntryId].push(item);
+      }
+      resolve(byEntry);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function uploadLocalScreenshot(
+  journalEntryId: string,
+  file: File,
+  caption?: string
+): Promise<JournalScreenshot> {
+  const db = await openJournalIdb();
+  const id = makeUuid();
+  const createdAt = new Date().toISOString();
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `preview-user/${journalEntryId}/${Date.now()}-${safeName}`;
+
+  const record: LocalStoredScreenshot = {
+    id,
+    journalEntryId,
+    fileName: file.name,
+    mimeType: file.type,
+    fileSizeBytes: file.size,
+    storagePath,
+    caption: caption?.trim() || null,
+    createdAt,
+    blob: file,
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_SCREENSHOTS, "readwrite");
+    const store = tx.objectStore(STORE_SCREENSHOTS);
+    const req = store.put(record);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  return {
+    id,
+    journalEntryId,
+    fileName: file.name,
+    mimeType: file.type,
+    fileSizeBytes: file.size,
+    storagePath,
+    url: URL.createObjectURL(file),
+    caption: caption?.trim() || null,
+    createdAt,
+    isLocalPreview: true,
+  };
+}
+
+async function removeLocalScreenshot(id: string): Promise<void> {
+  const db = await openJournalIdb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_SCREENSHOTS, "readwrite");
+    const store = tx.objectStore(STORE_SCREENSHOTS);
     const req = store.delete(id);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
@@ -486,12 +863,13 @@ async function removeLocalEntry(id: string): Promise<void> {
 }
 
 // ============================================================================
-// Unified Journal CRUD API (Supabase + Local Preview Fallback)
+// Unified Journal Entries CRUD API (Supabase + Local Preview Fallback)
 // ============================================================================
 
 interface SupabaseJournalRow {
   id: string;
   user_id: string;
+  account_type?: string;
   symbol: string;
   trade_type: TradeType;
   lot_size: number | string;
@@ -509,6 +887,7 @@ interface SupabaseJournalRow {
 function mapRowToEntry(row: SupabaseJournalRow): JournalEntry {
   return {
     id: row.id,
+    accountType: row.account_type === "demo" ? "demo" : "real",
     symbol: row.symbol,
     tradeType: row.trade_type,
     lotSize: Number(row.lot_size),
@@ -556,7 +935,7 @@ export async function fetchJournalEntries(): Promise<{
       return {
         entries: fallbackEntries,
         migrationHint:
-          "Run supabase/migrations/20261030000002_trading_journal.sql in your Supabase SQL Editor to sync journal entries to the cloud (using local browser storage until applied).",
+          "Run supabase/migrations/20261030000002_trading_journal.sql and 20261030000003_journal_cashflow_and_screenshots.sql in your Supabase SQL Editor to sync journal trades, deposits/withdrawals, and screenshots to the cloud.",
       };
     }
     throw new Error(error.message);
@@ -584,7 +963,9 @@ export async function createJournalEntry(
     input.closingPrice !== null &&
     (!Number.isFinite(input.closingPrice) || input.closingPrice <= 0)
   ) {
-    throw new Error("Closing price must be greater than 0 (or leave blank if open).");
+    throw new Error(
+      "Closing price must be greater than 0 (or leave blank if open)."
+    );
   }
   if (!Number.isFinite(input.leverage) || input.leverage < 1) {
     throw new Error("Leverage must be at least 1:1.");
@@ -593,10 +974,8 @@ export async function createJournalEntry(
   const nowIso = new Date().toISOString();
 
   const buildLocalRecord = (): JournalEntry => ({
-    id:
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    id: makeUuid(),
+    accountType: input.accountType,
     symbol: normalizedSymbol,
     tradeType: input.tradeType,
     lotSize: input.lotSize,
@@ -629,6 +1008,7 @@ export async function createJournalEntry(
     .from("journal_entries")
     .insert({
       user_id: user.id,
+      account_type: input.accountType,
       symbol: normalizedSymbol,
       trade_type: input.tradeType,
       lot_size: input.lotSize,
@@ -644,7 +1024,12 @@ export async function createJournalEntry(
     .single();
 
   if (error) {
-    if (error.code === "42P01" || error.message?.includes("journal_entries")) {
+    if (
+      error.code === "42P01" ||
+      error.code === "42703" ||
+      error.message?.includes("journal_entries") ||
+      error.message?.includes("account_type")
+    ) {
       return saveLocalEntry(buildLocalRecord());
     }
     throw new Error(error.message);
@@ -669,6 +1054,7 @@ export async function updateJournalEntry(
     const prev = existing.find((e) => e.id === id);
     const updated: JournalEntry = {
       id,
+      accountType: input.accountType,
       symbol: normalizedSymbol,
       tradeType: input.tradeType,
       lotSize: input.lotSize,
@@ -690,6 +1076,7 @@ export async function updateJournalEntry(
   const { data, error } = await supabase
     .from("journal_entries")
     .update({
+      account_type: input.accountType,
       symbol: normalizedSymbol,
       trade_type: input.tradeType,
       lot_size: input.lotSize,
@@ -714,14 +1101,29 @@ export async function updateJournalEntry(
 }
 
 export async function deleteJournalEntry(
-  entry: Pick<JournalEntry, "id" | "isLocalPreview">
+  entry: Pick<JournalEntry, "id" | "isLocalPreview">,
+  associatedScreenshots: JournalScreenshot[] = []
 ): Promise<void> {
   if (!isSupabaseConfigured() || entry.isLocalPreview) {
+    for (const shot of associatedScreenshots) {
+      if (shot.url.startsWith("blob:")) {
+        URL.revokeObjectURL(shot.url);
+      }
+    }
     await removeLocalEntry(entry.id);
     return;
   }
 
   const supabase = createClient();
+
+  const remotePaths = associatedScreenshots
+    .filter((s) => !s.isLocalPreview && s.storagePath)
+    .map((s) => s.storagePath);
+
+  if (remotePaths.length > 0) {
+    await supabase.storage.from(JOURNAL_SCREENSHOTS_BUCKET).remove(remotePaths);
+  }
+
   const { error } = await supabase
     .from("journal_entries")
     .delete()
@@ -729,5 +1131,366 @@ export async function deleteJournalEntry(
 
   if (error) {
     throw new Error(error.message);
+  }
+}
+
+// ============================================================================
+// Unified Cashflow (Deposit / Withdrawal) CRUD API
+// ============================================================================
+
+interface SupabaseTxRow {
+  id: string;
+  user_id: string;
+  account_type: AccountType;
+  tx_type: CashflowType;
+  amount: number | string;
+  note: string | null;
+  transacted_at: string;
+  created_at: string;
+}
+
+function mapRowToTx(row: SupabaseTxRow): CashflowTransaction {
+  return {
+    id: row.id,
+    accountType: row.account_type === "demo" ? "demo" : "real",
+    txType: row.tx_type === "withdrawal" ? "withdrawal" : "deposit",
+    amount: Number(row.amount),
+    note: row.note,
+    transactedAt: row.transacted_at,
+    createdAt: row.created_at,
+    isLocalPreview: false,
+  };
+}
+
+export async function fetchCashflowTransactions(): Promise<{
+  transactions: CashflowTransaction[];
+  migrationHint?: string;
+}> {
+  if (!isSupabaseConfigured()) {
+    const transactions = await listLocalTransactions();
+    return { transactions };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    const transactions = await listLocalTransactions();
+    return { transactions };
+  }
+
+  const { data, error } = await supabase
+    .from("journal_transactions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("transacted_at", { ascending: false });
+
+  if (error) {
+    if (
+      error.code === "42P01" ||
+      error.message?.includes("journal_transactions")
+    ) {
+      const transactions = await listLocalTransactions();
+      return {
+        transactions,
+        migrationHint:
+          "Run supabase/migrations/20261030000003_journal_cashflow_and_screenshots.sql in your Supabase SQL Editor to enable cloud sync for deposits, withdrawals, and journal screenshots.",
+      };
+    }
+    throw new Error(error.message);
+  }
+
+  return {
+    transactions: ((data as SupabaseTxRow[]) || []).map(mapRowToTx),
+  };
+}
+
+export async function createCashflowTransaction(
+  input: CashflowTransactionInput
+): Promise<CashflowTransaction> {
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    throw new Error("Amount must be greater than $0.00.");
+  }
+
+  const nowIso = new Date().toISOString();
+  const buildLocalTx = (): CashflowTransaction => ({
+    id: makeUuid(),
+    accountType: input.accountType,
+    txType: input.txType,
+    amount: Number(input.amount.toFixed(2)),
+    note: input.note?.trim() || null,
+    transactedAt: input.transactedAt || nowIso,
+    createdAt: nowIso,
+    isLocalPreview: true,
+  });
+
+  if (!isSupabaseConfigured()) {
+    return saveLocalTransaction(buildLocalTx());
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return saveLocalTransaction(buildLocalTx());
+  }
+
+  const { data, error } = await supabase
+    .from("journal_transactions")
+    .insert({
+      user_id: user.id,
+      account_type: input.accountType,
+      tx_type: input.txType,
+      amount: Number(input.amount.toFixed(2)),
+      note: input.note?.trim() || null,
+      transacted_at: input.transactedAt || nowIso,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    if (
+      error.code === "42P01" ||
+      error.message?.includes("journal_transactions")
+    ) {
+      return saveLocalTransaction(buildLocalTx());
+    }
+    throw new Error(error.message);
+  }
+
+  return mapRowToTx(data as SupabaseTxRow);
+}
+
+export async function deleteCashflowTransaction(
+  tx: Pick<CashflowTransaction, "id" | "isLocalPreview">
+): Promise<void> {
+  if (!isSupabaseConfigured() || tx.isLocalPreview) {
+    await removeLocalTransaction(tx.id);
+    return;
+  }
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("journal_transactions")
+    .delete()
+    .eq("id", tx.id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+// ============================================================================
+// Unified Journal Study Screenshots API ('journal-screenshots' Bucket + IDB)
+// ============================================================================
+
+export async function fetchAllJournalScreenshots(): Promise<{
+  byEntry: Record<string, JournalScreenshot[]>;
+  migrationHint?: string;
+}> {
+  if (!isSupabaseConfigured()) {
+    const byEntry = await listLocalScreenshots();
+    return { byEntry };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    const byEntry = await listLocalScreenshots();
+    return { byEntry };
+  }
+
+  const { data: rows, error } = await supabase
+    .from("journal_entry_screenshots")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (
+      error.code === "42P01" ||
+      error.message?.includes("journal_entry_screenshots")
+    ) {
+      const byEntry = await listLocalScreenshots();
+      return {
+        byEntry,
+        migrationHint:
+          "Run supabase/migrations/20261030000003_journal_cashflow_and_screenshots.sql in your Supabase SQL Editor to initialize the 'journal-screenshots' storage bucket.",
+      };
+    }
+    throw new Error(error.message);
+  }
+
+  if (!rows || rows.length === 0) {
+    // Also merge any local preview screenshots if present
+    const localShots = await listLocalScreenshots();
+    return { byEntry: localShots };
+  }
+
+  const paths = rows.map((r) => r.storage_path as string);
+  const { data: signedData } = await supabase.storage
+    .from(JOURNAL_SCREENSHOTS_BUCKET)
+    .createSignedUrls(paths, 60 * 60 * 6); // 6 hours
+
+  const signedMap = new Map<string, string>();
+  signedData?.forEach((entry) => {
+    if (entry.path && entry.signedUrl) {
+      signedMap.set(entry.path, entry.signedUrl);
+    }
+  });
+
+  const byEntry: Record<string, JournalScreenshot[]> = {};
+  for (const row of rows) {
+    const url = signedMap.get(row.storage_path) ?? "";
+    if (!url) continue;
+
+    const shot: JournalScreenshot = {
+      id: row.id,
+      journalEntryId: row.journal_entry_id,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      fileSizeBytes: Number(row.file_size_bytes),
+      storagePath: row.storage_path,
+      url,
+      caption: row.caption ?? null,
+      createdAt: row.created_at,
+      isLocalPreview: false,
+    };
+
+    if (!byEntry[shot.journalEntryId]) byEntry[shot.journalEntryId] = [];
+    byEntry[shot.journalEntryId].push(shot);
+  }
+
+  return { byEntry };
+}
+
+export async function uploadJournalScreenshot(
+  journalEntry: Pick<JournalEntry, "id" | "isLocalPreview">,
+  file: File,
+  caption?: string
+): Promise<JournalScreenshot> {
+  const validationError = validateJournalScreenshot(file);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  if (!isSupabaseConfigured() || journalEntry.isLocalPreview) {
+    return uploadLocalScreenshot(journalEntry.id, file, caption);
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return uploadLocalScreenshot(journalEntry.id, file, caption);
+  }
+
+  const safeName = sanitizeFileName(file.name);
+  const uniquePrefix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const storagePath = `${user.id}/${journalEntry.id}/${uniquePrefix}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(JOURNAL_SCREENSHOTS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    if (
+      uploadError.message?.toLowerCase().includes("bucket") ||
+      uploadError.message?.toLowerCase().includes("not found")
+    ) {
+      return uploadLocalScreenshot(journalEntry.id, file, caption);
+    }
+    throw new Error(uploadError.message);
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("journal_entry_screenshots")
+    .insert({
+      user_id: user.id,
+      journal_entry_id: journalEntry.id,
+      storage_path: storagePath,
+      file_name: file.name,
+      mime_type: file.type,
+      file_size_bytes: file.size,
+      caption: caption?.trim() || null,
+    })
+    .select("*")
+    .single();
+
+  if (insertError || !inserted) {
+    await supabase.storage
+      .from(JOURNAL_SCREENSHOTS_BUCKET)
+      .remove([storagePath]);
+    throw new Error(
+      insertError?.message ?? "Failed to save journal screenshot metadata."
+    );
+  }
+
+  const { data: signed, error: signedError } = await supabase.storage
+    .from(JOURNAL_SCREENSHOTS_BUCKET)
+    .createSignedUrl(storagePath, 60 * 60 * 6);
+
+  if (signedError || !signed?.signedUrl) {
+    throw new Error(
+      signedError?.message ?? "Failed to create signed screenshot URL."
+    );
+  }
+
+  return {
+    id: inserted.id,
+    journalEntryId: inserted.journal_entry_id,
+    fileName: inserted.file_name,
+    mimeType: inserted.mime_type,
+    fileSizeBytes: Number(inserted.file_size_bytes),
+    storagePath: inserted.storage_path,
+    url: signed.signedUrl,
+    caption: inserted.caption ?? null,
+    createdAt: inserted.created_at,
+    isLocalPreview: false,
+  };
+}
+
+export async function deleteJournalScreenshot(
+  screenshot: JournalScreenshot
+): Promise<void> {
+  if (!isSupabaseConfigured() || screenshot.isLocalPreview) {
+    if (screenshot.url.startsWith("blob:")) {
+      URL.revokeObjectURL(screenshot.url);
+    }
+    await removeLocalScreenshot(screenshot.id);
+    return;
+  }
+
+  const supabase = createClient();
+
+  const { error: storageError } = await supabase.storage
+    .from(JOURNAL_SCREENSHOTS_BUCKET)
+    .remove([screenshot.storagePath]);
+
+  if (storageError) {
+    throw new Error(storageError.message);
+  }
+
+  const { error: dbError } = await supabase
+    .from("journal_entry_screenshots")
+    .delete()
+    .eq("id", screenshot.id);
+
+  if (dbError) {
+    throw new Error(dbError.message);
   }
 }

@@ -82,9 +82,8 @@ export default async function AdminOverviewPage({
               Trading Journal
             </h2>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Log new executions with the header + button: symbol, buy/sell
-              type, lot size, TP &amp; SL, opening/closing prices, date/time,
-              and leverage.
+              Track Real &amp; Demo float via Deposit/Withdraw buttons, live
+              balance, trade records (+ button), and study screenshots.
             </p>
           </div>
 
@@ -199,6 +198,10 @@ export default async function AdminOverviewPage({
             {
               file: "supabase/migrations/*_trading_journal.sql",
               desc: "Journal entries table & user-scoped RLS policies",
+            },
+            {
+              file: "supabase/migrations/*_cashflow_and_screenshots.sql",
+              desc: "Deposits/withdrawals float ledger + 10 MB 'journal-screenshots' bucket",
             },
           ].map((item) => (
             <div
