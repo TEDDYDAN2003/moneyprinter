@@ -4,6 +4,7 @@ import {
   BookOpen,
   CheckCircle2,
   CheckSquare,
+  Clock,
   Crosshair,
   Database,
   KeyRound,
@@ -61,7 +62,7 @@ export default async function AdminOverviewPage({
       </div>
 
       {/* Core Modules Grid */}
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-3">
         {/* Journal Module Card */}
         <Link
           href={`/admin/journal${suffix}`}
@@ -118,7 +119,38 @@ export default async function AdminOverviewPage({
           </div>
 
           <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
-            <span>Open Pullback Strategy Shell</span>
+            <span>Open Pullback Strategy</span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </div>
+        </Link>
+
+        {/* Timezones Module Card */}
+        <Link
+          href={`/admin/timezones${suffix}`}
+          className="group relative flex flex-col justify-between rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 transition hover:border-emerald-500/40 hover:bg-[#111823]"
+        >
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+                <Clock className="h-5 w-5" />
+              </div>
+              <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+                Sidebar → Timezones
+              </span>
+            </div>
+
+            <h2 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors">
+              Timezones &amp; Pair Cheat Sheet
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+              Live 4-session global clocks synced to EAT (UTC+3), longitudinal
+              session spans, and 5 visual cheat sheets including XAU/USD &amp;
+              US30.
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
+            <span>Open Live Clocks</span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>
