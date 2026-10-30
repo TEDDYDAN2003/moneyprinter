@@ -5,6 +5,7 @@
 --   - 20261029000001_pullback_checklist_storage.sql
 --   - 20261030000002_trading_journal.sql
 --   - 20261030000003_journal_cashflow_and_screenshots.sql
+--   - 20261030000004_volume_profile_reference_scope.sql
 -- ============================================================================
 
 -- 1. Profiles Table
@@ -129,9 +130,19 @@ create policy "Users can delete own pullback reference files"
 create table if not exists public.pullback_checklist_images (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  market text not null check (market in ('bullish', 'bearish', 'catching')),
+  market text not null check (
+    market in (
+      'bullish',
+      'bearish',
+      'catching',
+      'vp_setup',
+      'vp_poc',
+      'vp_reversal',
+      'vp_breakout'
+    )
+  ),
   step_id text not null check (
-    step_id ~ '^(bull|bear|catch)-(flow-)?[1-9][0-9]*$'
+    step_id ~ '^(bull|bear|catch|vp)-(setup-|poc-|var-|bo-|flow-)?[1-9][0-9]*$'
   ),
   storage_path text not null unique,
   file_name text not null,

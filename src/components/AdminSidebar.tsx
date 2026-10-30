@@ -30,6 +30,11 @@ const STRATEGY_ITEMS = [
     href: "/admin/strategy/pullback-strategy",
     badge: "Checklist",
   },
+  {
+    label: "Volume Profile",
+    href: "/admin/strategy/volume-profile-strategy",
+    badge: "3 Setups",
+  },
 ];
 
 export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {

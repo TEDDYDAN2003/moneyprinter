@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  BarChart3,
   BookOpen,
   CheckCircle2,
   CheckSquare,
@@ -62,7 +63,7 @@ export default async function AdminOverviewPage({
       </div>
 
       {/* Core Modules Grid */}
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-2">
         {/* Journal Module Card */}
         <Link
           href={`/admin/journal${suffix}`}
@@ -120,6 +121,37 @@ export default async function AdminOverviewPage({
 
           <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
             <span>Open Pullback Strategy</span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </div>
+        </Link>
+
+        {/* Volume Profile Strategy Card */}
+        <Link
+          href={`/admin/strategy/volume-profile-strategy${suffix}`}
+          className="group relative flex flex-col justify-between rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 transition hover:border-emerald-500/40 hover:bg-[#111823]"
+        >
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+              <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+                Hover Strategy → Volume Profile
+              </span>
+            </div>
+
+            <h2 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors">
+              Volume Profile Strategy
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+              Previous-session Fixed Range Volume Profile (`POC`, `VAH`, `VAL`)
+              with 3 header strategies: POC Bounce, Value Area Reversal, and
+              Breakout.
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
+            <span>Open Volume Profile Blueprint</span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>

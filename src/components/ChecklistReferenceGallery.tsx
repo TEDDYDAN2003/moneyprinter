@@ -45,7 +45,7 @@ export function ChecklistReferenceGallery({
   const [lightboxImage, setLightboxImage] =
     useState<ChecklistReferenceImage | null>(null);
 
-  const isBullish = market === "bullish";
+  const isBullish = market !== "bearish";
 
   async function processFiles(fileList: FileList | File[]) {
     if (!isEditing) return;

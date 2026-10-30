@@ -2,7 +2,13 @@ import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type { MarketDirection } from "@/components/PullbackStepDiagram";
 
-export type ReferenceMarketScope = MarketDirection | "catching";
+export type ReferenceMarketScope =
+  | MarketDirection
+  | "catching"
+  | "vp_setup"
+  | "vp_poc"
+  | "vp_reversal"
+  | "vp_breakout";
 
 export const PULLBACK_BUCKET = "pullback-references";
 export const MAX_FILE_SIZE_MB = 10;
