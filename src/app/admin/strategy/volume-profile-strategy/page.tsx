@@ -28,6 +28,7 @@ import {
   type VpTradeDirection,
 } from "@/components/VolumeProfileDiagram";
 import { ChecklistReferenceGallery } from "@/components/ChecklistReferenceGallery";
+import { GlobalStrategyChecklist } from "@/components/GlobalStrategyChecklist";
 import {
   fetchAllChecklistReferences,
   removeChecklistReference,
@@ -1027,6 +1028,12 @@ export default function VolumeProfileStrategyPage() {
             );
           })}
         </div>
+
+        {/* Shared Global Pre-Entry Risk-Reduction Checklist (Single Shared File across All Strategies) */}
+        <GlobalStrategyChecklist
+          direction={currentDirection}
+          strategyContext={`Volume Profile · ${currentConfig.tabLabel}`}
+        />
 
         {/* Strategy Transition / Limitation Note */}
         <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-[#0E131B] p-5 sm:flex-row sm:items-center sm:justify-between">

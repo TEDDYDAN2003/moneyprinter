@@ -33,6 +33,7 @@ import {
 } from "@/components/TradeFlowDiagram";
 import { ChecklistReferenceGallery } from "@/components/ChecklistReferenceGallery";
 import { CatchingPullbacksSection } from "@/components/CatchingPullbacksSection";
+import { GlobalStrategyChecklist } from "@/components/GlobalStrategyChecklist";
 import {
   fetchAllChecklistReferences,
   removeChecklistReference,
@@ -815,6 +816,8 @@ export default function PullbackStrategyPage() {
             onUploadFiles={handleUploadStepFiles}
             onDeleteImage={handleDeleteStepImage}
           />
+
+          <GlobalStrategyChecklist strategyContext="Pullback Strategy · Catching Pullbacks" />
         </>
       ) : (
         <>
@@ -1584,6 +1587,14 @@ export default function PullbackStrategyPage() {
           </div>
         )}
       </section>
+
+      {/* Shared Global Pre-Entry Risk-Reduction Checklist (Just Before Best Timeframe for Valid Pullback) */}
+      <GlobalStrategyChecklist
+        direction={market}
+        strategyContext={`Pullback Strategy · ${
+          isBullish ? "Bullish Market" : "Bearish Market"
+        }`}
+      />
 
       {/* Non-Checklist Reference Sections: Best Timeframe & Best Pairs */}
       <div className="grid gap-6 lg:grid-cols-2">
