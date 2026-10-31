@@ -80,11 +80,12 @@ export default async function AdminOverviewPage({
             </div>
 
             <h2 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors">
-              Trading Journal
+              Trading Journal &amp; Backtesting
             </h2>
             <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-              Track Real &amp; Demo float via Deposit/Withdraw buttons, live
-              balance, trade records (+ button), and study screenshots.
+              Track Real &amp; Demo float, log live or backtested setups via the
+              + button with chart screenshots, and inspect per-strategy Win
+              Probability Pie Charts.
             </p>
           </div>
 

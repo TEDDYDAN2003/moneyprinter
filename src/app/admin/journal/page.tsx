@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -10,10 +16,13 @@ import {
   Calendar,
   Camera,
   Clock,
+  Crosshair,
   DollarSign,
   Download,
   Edit3,
+  FlaskConical,
   ImagePlus,
+  Layers,
   Percent,
   Plus,
   Search,
@@ -53,6 +62,14 @@ import {
   uploadJournalScreenshot,
   validateJournalScreenshot,
 } from "@/lib/journal";
+import {
+  BACKTEST_SESSIONS,
+  BACKTEST_TIMEFRAMES,
+  formatStrategyLabel,
+  STRATEGY_CATALOG,
+  STRATEGY_FAMILIES,
+} from "@/lib/strategies";
+import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
 
 type LedgerFilter = "all" | "buy" | "sell" | "win" | "loss" | "open";
 type ActiveSectionTab = "trades" | "cashflow";
@@ -98,22 +115,28 @@ export default function JournalPage() {
   const [migrationHint, setMigrationHint] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  // Account Scope ('real' | 'demo') & Active View ('trades' | 'cashflow')
+  // Account Scope ('real' | 'demo' | 'backtest') & Active View ('trades' | 'cashflow')
   const [activeAccount, setActiveAccount] = useState<AccountType>("real");
   const [showAllAccountsInTable, setShowAllAccountsInTable] = useState(false);
   const [sectionTab, setSectionTab] = useState<ActiveSectionTab>("trades");
 
-  // Trade Filters
+  // Trade & Strategy Filters
   const [filter, setFilter] = useState<LedgerFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStrategyFilter, setSelectedStrategyFilter] = useState<
+    string | null
+  >(null);
 
-  // Trade Record Modal State
+  // Trade / Backtest Record Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [formAccountType, setFormAccountType] = useState<AccountType>("real");
+  const [strategyId, setStrategyId] = useState<string>(STRATEGY_CATALOG[0].id);
+  const [timeframe, setTimeframe] = useState<string>("15M");
+  const [sessionName, setSessionName] = useState<string>("New York Session");
   const [symbol, setSymbol] = useState("XAU/USD");
   const [tradeType, setTradeType] = useState<TradeType>("buy");
   const [lotSize, setLotSize] = useState("0.01");
@@ -125,7 +148,7 @@ export default function JournalPage() {
   const [leverage, setLeverage] = useState("2000");
   const [notes, setNotes] = useState("");
 
-  // Staged screenshot files inside New/Edit Trade Modal
+  // Staged screenshot files inside New/Edit Modal
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const modalFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -183,7 +206,7 @@ export default function JournalPage() {
     loadAllJournalData();
   }, [loadAllJournalData]);
 
-  // Separate Balance Summaries for Real & Demo
+  // Separate Balance Summaries for Real, Demo, and Backtesting
   const realBalanceSummary = useMemo(
     () => computeAccountBalanceSummary(entries, transactions, "real"),
     [entries, transactions]
@@ -194,14 +217,38 @@ export default function JournalPage() {
     [entries, transactions]
   );
 
+  const backtestBalanceSummary = useMemo(
+    () => computeAccountBalanceSummary(entries, transactions, "backtest"),
+    [entries, transactions]
+  );
+
+  const backtestEntries = useMemo(
+    () => entries.filter((e) => e.accountType === "backtest"),
+    [entries]
+  );
+
   const activeBalance =
-    activeAccount === "real" ? realBalanceSummary : demoBalanceSummary;
+    activeAccount === "real"
+      ? realBalanceSummary
+      : activeAccount === "demo"
+      ? demoBalanceSummary
+      : backtestBalanceSummary;
+
+  const isBacktestMode = activeAccount === "backtest";
 
   // --- Open Modals ---
-  const openCreateModal = () => {
+  const openCreateModal = (overrideAccount?: AccountType) => {
+    const targetMode = overrideAccount ?? activeAccount;
     setEditingEntry(null);
     setFormError(null);
-    setFormAccountType(activeAccount);
+    setFormAccountType(targetMode);
+    setStrategyId(
+      selectedStrategyFilter && selectedStrategyFilter !== "unspecified"
+        ? selectedStrategyFilter
+        : STRATEGY_CATALOG[0].id
+    );
+    setTimeframe("15M");
+    setSessionName("New York Session");
     setSymbol("XAU/USD");
     setTradeType("buy");
     setLotSize("0.01");
@@ -220,6 +267,9 @@ export default function JournalPage() {
     setEditingEntry(entry);
     setFormError(null);
     setFormAccountType(entry.accountType);
+    setStrategyId(entry.strategy || STRATEGY_CATALOG[0].id);
+    setTimeframe(entry.timeframe || "15M");
+    setSessionName(entry.sessionName || "");
     setSymbol(entry.symbol);
     setTradeType(entry.tradeType);
     setLotSize(String(entry.lotSize));
@@ -265,7 +315,7 @@ export default function JournalPage() {
     setCashflowError(null);
   };
 
-  // --- Staged Screenshot Selection Inside Trade Modal ---
+  // --- Staged Screenshot Selection Inside Trade/Backtest Modal ---
   const handleStageFiles = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setFormError(null);
@@ -348,7 +398,7 @@ export default function JournalPage() {
     return null;
   }, [tradeType, openingPrice, stopLoss, takeProfit]);
 
-  // --- Submit Trade Record (+ Upload Staged Screenshots) ---
+  // --- Submit Trade / Backtest Record (+ Upload Staged Screenshots) ---
   const handleSubmitTrade = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -360,6 +410,10 @@ export default function JournalPage() {
     const parsedSl = stopLoss.trim() ? parseFloat(stopLoss) : null;
     const parsedLev = parseInt(leverage, 10);
 
+    if (formAccountType === "backtest" && !strategyId.trim()) {
+      setFormError("Please select the Backtested Strategy from the list.");
+      return;
+    }
     if (!normalizeSymbol(symbol)) {
       setFormError("Please enter a Symbol / Currency Pair (e.g. XAU/USD).");
       return;
@@ -401,6 +455,9 @@ export default function JournalPage() {
 
     const payload: JournalEntryInput = {
       accountType: formAccountType,
+      strategy: strategyId || null,
+      timeframe: timeframe || null,
+      sessionName: sessionName || null,
       symbol,
       tradeType,
       lotSize: parsedLots,
@@ -437,7 +494,7 @@ export default function JournalPage() {
         );
       }
 
-      // Upload any staged study screenshots to 'journal-screenshots' bucket
+      // Upload staged study screenshots
       if (stagedFiles.length > 0) {
         const uploadedShots: JournalScreenshot[] = [];
         for (const file of stagedFiles) {
@@ -605,7 +662,7 @@ export default function JournalPage() {
     }
   };
 
-  // --- Scoped Performance KPIs for Active Account ---
+  // --- Scoped Performance KPIs ---
   const enrichedAllEntries = useMemo(() => {
     return entries.map((entry) => ({
       entry,
@@ -629,9 +686,12 @@ export default function JournalPage() {
     let totalLots = 0;
     const rrList: number[] = [];
     const riskList: number[] = [];
+    const distinctStrategies = new Set<string>();
 
     for (const { entry, metrics } of scopedEntriesForKpis) {
       totalLots += entry.lotSize;
+      if (entry.strategy) distinctStrategies.add(entry.strategy);
+
       if (metrics.plannedRR !== null && metrics.plannedRR > 0) {
         rrList.push(metrics.plannedRR);
       }
@@ -655,6 +715,7 @@ export default function JournalPage() {
     const closedCount = wins + losses + breakevens;
     const decisiveCount = wins + losses;
     const winRate = decisiveCount > 0 ? (wins / decisiveCount) * 100 : null;
+    const lossRate = decisiveCount > 0 ? (losses / decisiveCount) * 100 : null;
     const profitFactor =
       grossLossAbs > 0
         ? grossProfit / grossLossAbs
@@ -679,18 +740,24 @@ export default function JournalPage() {
       totalCount: scopedEntriesForKpis.length,
       totalLots,
       winRate,
+      lossRate,
       profitFactor,
       avgRR,
       avgRisk,
+      strategyCount: distinctStrategies.size,
     };
   }, [scopedEntriesForKpis]);
 
-  // --- Filtered Entries & Transactions for Display ---
+  // --- Filtered Entries & Transactions ---
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toUpperCase();
     return enrichedAllEntries.filter(({ entry, metrics }) => {
       if (!showAllAccountsInTable && entry.accountType !== activeAccount) {
         return false;
+      }
+      if (selectedStrategyFilter) {
+        const entryStratKey = entry.strategy || "unspecified";
+        if (entryStratKey !== selectedStrategyFilter) return false;
       }
       if (q && !entry.symbol.toUpperCase().includes(q)) {
         return false;
@@ -706,6 +773,7 @@ export default function JournalPage() {
     enrichedAllEntries,
     showAllAccountsInTable,
     activeAccount,
+    selectedStrategyFilter,
     filter,
     searchQuery,
   ]);
@@ -717,7 +785,7 @@ export default function JournalPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Deposit, Withdraw, and + New Record Buttons */}
+      {/* Header with Deposit, Withdraw, and + (New Record / New Backtest) Button */}
       <div className="border-b border-slate-800/80 pb-5">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs uppercase tracking-widest text-emerald-400">
@@ -725,59 +793,92 @@ export default function JournalPage() {
           </span>
           <span className="text-slate-700">/</span>
           <span className="font-mono text-xs text-slate-400">Journal</span>
+          {isBacktestMode && (
+            <>
+              <span className="text-slate-700">/</span>
+              <span className="font-mono text-xs text-cyan-400">
+                Backtesting
+              </span>
+            </>
+          )}
         </div>
 
         <div className="mt-1.5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              Trading Journal &amp; Account Ledger
+              {isBacktestMode
+                ? "Strategy Backtesting & Probability Lab"
+                : "Trading Journal & Account Ledger"}
             </h1>
             <p className="mt-1 text-sm text-slate-400">
-              Track Real &amp; Demo float, deposits/withdrawals, live account
-              balance, trade executions, and study chart screenshots.
+              {isBacktestMode
+                ? "Record historical backtested setups, attach chart screenshots, tag strategies, and analyze Win vs Loss probability pie charts."
+                : "Track Real & Demo float, deposits/withdrawals, live account balance, trade executions, and study chart screenshots."}
             </p>
           </div>
 
-          {/* Header Action Buttons: Deposit, Withdraw, + New Record */}
+          {/* Header Action Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => openCashflowModal("deposit")}
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/12 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
-            >
-              <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
-              <span>Deposit</span>
-            </button>
+            {!isBacktestMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openCashflowModal("deposit")}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/12 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+                >
+                  <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
+                  <span>Deposit</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openCashflowModal("withdrawal")}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20"
+                >
+                  <ArrowUpRight className="h-4 w-4 text-amber-400" />
+                  <span>Withdraw</span>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
-              onClick={() => openCashflowModal("withdrawal")}
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20"
-            >
-              <ArrowUpRight className="h-4 w-4 text-amber-400" />
-              <span>Withdraw</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={openCreateModal}
-              aria-label="Add new journal record"
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-950 shadow-[0_0_24px_rgba(16,185,129,0.28)] transition hover:bg-emerald-400 active:scale-[0.99]"
+              onClick={() => openCreateModal()}
+              aria-label={
+                isBacktestMode
+                  ? "Add new backtest record"
+                  : "Add new journal record"
+              }
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-950 transition active:scale-[0.99] ${
+                isBacktestMode
+                  ? "bg-cyan-400 shadow-[0_0_24px_rgba(34,211,238,0.28)] hover:bg-cyan-300"
+                  : "bg-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.28)] hover:bg-emerald-400"
+              }`}
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-md bg-slate-950/15">
                 <Plus className="h-4 w-4 stroke-[2.6]" />
               </span>
-              <span>New Record</span>
+              <span>{isBacktestMode ? "New Backtest" : "New Record"}</span>
             </button>
           </div>
         </div>
 
-        {/* Account Scope Switcher: Real Account vs Demo Account */}
+        {/* Account & Backtesting Tab Switcher: Real Account | Demo Account | Backtesting */}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex rounded-xl border border-slate-800 bg-[#0B0F15] p-1">
+          <div
+            role="tablist"
+            aria-label="Journal Account and Backtesting Modes"
+            className="inline-flex flex-wrap rounded-xl border border-slate-800 bg-[#0B0F15] p-1 gap-1"
+          >
+            {/* 1. Real Account */}
             <button
               type="button"
-              onClick={() => setActiveAccount("real")}
+              role="tab"
+              aria-selected={activeAccount === "real"}
+              onClick={() => {
+                setActiveAccount("real");
+                setSelectedStrategyFilter(null);
+              }}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
                 activeAccount === "real"
                   ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/35"
@@ -791,9 +892,15 @@ export default function JournalPage() {
               </span>
             </button>
 
+            {/* 2. Demo Account */}
             <button
               type="button"
-              onClick={() => setActiveAccount("demo")}
+              role="tab"
+              aria-selected={activeAccount === "demo"}
+              onClick={() => {
+                setActiveAccount("demo");
+                setSelectedStrategyFilter(null);
+              }}
               className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
                 activeAccount === "demo"
                   ? "bg-purple-500/15 text-purple-300 border border-purple-500/35"
@@ -806,17 +913,42 @@ export default function JournalPage() {
                 {formatUsd(demoBalanceSummary.currentBalance)}
               </span>
             </button>
+
+            {/* 3. Backtesting Tab */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAccount === "backtest"}
+              onClick={() => {
+                setActiveAccount("backtest");
+                setSectionTab("trades");
+              }}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+                activeAccount === "backtest"
+                  ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/35"
+                  : "text-slate-400 hover:text-slate-200 border border-transparent"
+              }`}
+            >
+              <FlaskConical className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Backtesting</span>
+              <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[11px] text-cyan-200 tabular-nums">
+                {backtestEntries.length}{" "}
+                {backtestEntries.length === 1 ? "Setup" : "Setups"}
+              </span>
+            </button>
           </div>
 
-          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-400 select-none">
-            <input
-              type="checkbox"
-              checked={showAllAccountsInTable}
-              onChange={(e) => setShowAllAccountsInTable(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0"
-            />
-            <span>Show both Real &amp; Demo rows in table</span>
-          </label>
+          {!isBacktestMode && (
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-400 select-none">
+              <input
+                type="checkbox"
+                checked={showAllAccountsInTable}
+                onChange={(e) => setShowAllAccountsInTable(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0"
+              />
+              <span>Show all rows in table</span>
+            </label>
+          )}
         </div>
       </div>
 
@@ -846,154 +978,260 @@ export default function JournalPage() {
         </div>
       )}
 
-      {/* Balance, Float & Trading Performance KPI Strip (Scoped to Selected Account) */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* 1. Current Balance (Float + P&L) */}
-        <div
-          className={`rounded-2xl border p-4 ${
-            activeAccount === "real"
-              ? "border-emerald-500/30 bg-gradient-to-b from-emerald-500/[0.07] to-[#0E131B]"
-              : "border-purple-500/30 bg-gradient-to-b from-purple-500/[0.07] to-[#0E131B]"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-300">
-              Current Balance ({activeAccount === "real" ? "REAL" : "DEMO"})
-            </span>
-            <Wallet
-              className={`h-4 w-4 ${
-                activeAccount === "real"
+      {/* KPI Strip: Adapts cleanly between Real/Demo Balance vs Backtesting Lab */}
+      {isBacktestMode ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* 1. Overall Win Probability */}
+          <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-b from-cyan-500/[0.07] to-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300">
+                Overall Win Probability
+              </span>
+              <Percent className="h-4 w-4 text-cyan-400" />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {kpis.winRate !== null ? `${kpis.winRate.toFixed(1)}%` : "—"}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-400 tabular-nums">
+              {kpis.closedCount > 0
+                ? `${kpis.wins}W · ${kpis.losses}L (${kpis.lossRate?.toFixed(
+                    1
+                  )}% Loss)`
+                : "Log closed setups to compute"}
+            </p>
+          </div>
+
+          {/* 2. Strategies Tested */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Strategies Backtested
+              </span>
+              <Crosshair className="h-4 w-4 text-cyan-400/80" />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {kpis.strategyCount}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              Across {kpis.totalCount} total backtested setups
+            </p>
+          </div>
+
+          {/* 3. Simulated Net P&L & Profit Factor */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Simulated Net P&amp;L
+              </span>
+              <DollarSign className="h-4 w-4 text-emerald-400/80" />
+            </div>
+            <p
+              className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
+                kpis.closedCount === 0
+                  ? "text-white"
+                  : activeBalance.realizedPnl > 0.004
                   ? "text-emerald-400"
-                  : "text-purple-400"
+                  : activeBalance.realizedPnl < -0.004
+                  ? "text-rose-400"
+                  : "text-slate-200"
               }`}
-            />
+            >
+              {kpis.closedCount > 0
+                ? formatUsd(activeBalance.realizedPnl, true)
+                : "$0.00"}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              {kpis.profitFactor !== null
+                ? `Profit Factor: ${
+                    kpis.profitFactor === Infinity
+                      ? "∞"
+                      : kpis.profitFactor.toFixed(2)
+                  }`
+                : "Standard contract sizing"}
+            </p>
           </div>
-          <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
-            {formatUsd(activeBalance.currentBalance)}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-slate-400 tabular-nums">
-            {activeBalance.openUsedMargin > 0
-              ? `Free Margin: ${formatUsd(
-                  activeBalance.freeMargin
-                )} (Locked: ${formatUsd(activeBalance.openUsedMargin)})`
-              : "Float + Realized Profits/Losses"}
-          </p>
-        </div>
 
-        {/* 2. Net Float (Deposits - Withdrawals) */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">
-              Net Float (Capital)
-            </span>
-            <ShieldCheck className="h-4 w-4 text-cyan-400/80" />
+          {/* 4. Avg Planned R:R */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Avg Planned R:R
+              </span>
+              <Layers className="h-4 w-4 text-emerald-400/80" />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {kpis.avgRR !== null ? `1 : ${kpis.avgRR.toFixed(2)}` : "—"}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              {kpis.avgRisk !== null
+                ? `Avg Sim Risk: ${formatUsd(kpis.avgRisk)}`
+                : "Derived from SL & TP"}
+            </p>
           </div>
-          <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
-            {formatUsd(activeBalance.netFloat)}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
-            In: {formatUsd(activeBalance.totalDeposits)} · Out:{" "}
-            {formatUsd(activeBalance.totalWithdrawals)}
-          </p>
         </div>
-
-        {/* 3. Realized P&L vs Float */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">
-              Realized Net P&amp;L
-            </span>
-            <DollarSign className="h-4 w-4 text-emerald-400/80" />
-          </div>
-          <p
-            className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
-              kpis.closedCount === 0
-                ? "text-white"
-                : activeBalance.realizedPnl > 0.004
-                ? "text-emerald-400"
-                : activeBalance.realizedPnl < -0.004
-                ? "text-rose-400"
-                : "text-slate-200"
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* 1. Current Balance (Float + P&L) */}
+          <div
+            className={`rounded-2xl border p-4 ${
+              activeAccount === "real"
+                ? "border-emerald-500/30 bg-gradient-to-b from-emerald-500/[0.07] to-[#0E131B]"
+                : "border-purple-500/30 bg-gradient-to-b from-purple-500/[0.07] to-[#0E131B]"
             }`}
           >
-            {kpis.closedCount > 0
-              ? formatUsd(activeBalance.realizedPnl, true)
-              : "$0.00"}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
-            {activeBalance.returnOnFloatPct !== null
-              ? `ROI vs Deposits: ${
-                  activeBalance.returnOnFloatPct >= 0 ? "+" : ""
-                }${activeBalance.returnOnFloatPct.toFixed(1)}%`
-              : kpis.profitFactor !== null
-              ? `Profit Factor: ${
-                  kpis.profitFactor === Infinity
-                    ? "∞"
-                    : kpis.profitFactor.toFixed(2)
-                }`
-              : "Deposit float to track ROI %"}
-          </p>
-        </div>
-
-        {/* 4. Win Rate & Avg R:R */}
-        <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">
-              Win Rate &amp; Avg R:R
-            </span>
-            <Percent className="h-4 w-4 text-emerald-400/80" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-300">
+                Current Balance ({activeAccount === "real" ? "REAL" : "DEMO"})
+              </span>
+              <Wallet
+                className={`h-4 w-4 ${
+                  activeAccount === "real"
+                    ? "text-emerald-400"
+                    : "text-purple-400"
+                }`}
+              />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {formatUsd(activeBalance.currentBalance)}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-400 tabular-nums">
+              {activeBalance.openUsedMargin > 0
+                ? `Free Margin: ${formatUsd(
+                    activeBalance.freeMargin
+                  )} (Locked: ${formatUsd(activeBalance.openUsedMargin)})`
+                : "Float + Realized Profits/Losses"}
+            </p>
           </div>
-          <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
-            {kpis.winRate !== null ? `${kpis.winRate.toFixed(1)}%` : "—"}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
-            {kpis.closedCount > 0
-              ? `${kpis.wins}W · ${kpis.losses}L${
-                  kpis.avgRR !== null ? ` · Avg 1:${kpis.avgRR.toFixed(1)}` : ""
-                }`
-              : `${kpis.totalCount} trades (${kpis.openCount} open)`}
-          </p>
+
+          {/* 2. Net Float */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Net Float (Capital)
+              </span>
+              <ShieldCheck className="h-4 w-4 text-cyan-400/80" />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {formatUsd(activeBalance.netFloat)}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              In: {formatUsd(activeBalance.totalDeposits)} · Out:{" "}
+              {formatUsd(activeBalance.totalWithdrawals)}
+            </p>
+          </div>
+
+          {/* 3. Realized P&L vs Float */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Realized Net P&amp;L
+              </span>
+              <DollarSign className="h-4 w-4 text-emerald-400/80" />
+            </div>
+            <p
+              className={`mt-2 font-mono text-2xl font-bold tabular-nums ${
+                kpis.closedCount === 0
+                  ? "text-white"
+                  : activeBalance.realizedPnl > 0.004
+                  ? "text-emerald-400"
+                  : activeBalance.realizedPnl < -0.004
+                  ? "text-rose-400"
+                  : "text-slate-200"
+              }`}
+            >
+              {kpis.closedCount > 0
+                ? formatUsd(activeBalance.realizedPnl, true)
+                : "$0.00"}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              {activeBalance.returnOnFloatPct !== null
+                ? `ROI vs Deposits: ${
+                    activeBalance.returnOnFloatPct >= 0 ? "+" : ""
+                  }${activeBalance.returnOnFloatPct.toFixed(1)}%`
+                : kpis.profitFactor !== null
+                ? `Profit Factor: ${
+                    kpis.profitFactor === Infinity
+                      ? "∞"
+                      : kpis.profitFactor.toFixed(2)
+                  }`
+                : "Deposit float to track ROI %"}
+            </p>
+          </div>
+
+          {/* 4. Win Rate & Avg R:R */}
+          <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-400">
+                Win Rate &amp; Avg R:R
+              </span>
+              <Percent className="h-4 w-4 text-emerald-400/80" />
+            </div>
+            <p className="mt-2 font-mono text-2xl font-bold text-white tabular-nums">
+              {kpis.winRate !== null ? `${kpis.winRate.toFixed(1)}%` : "—"}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-slate-500 tabular-nums">
+              {kpis.closedCount > 0
+                ? `${kpis.wins}W · ${kpis.losses}L${
+                    kpis.avgRR !== null ? ` · Avg 1:${kpis.avgRR.toFixed(1)}` : ""
+                  }`
+                : `${kpis.totalCount} trades (${kpis.openCount} open)`}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Section Switcher: Trade Execution Ledger vs Deposits & Withdrawals */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-slate-800 bg-[#0E131B] p-1">
-          <button
-            type="button"
-            onClick={() => setSectionTab("trades")}
-            className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
-              sectionTab === "trades"
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Trade Records ({filteredEntries.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSectionTab("cashflow")}
-            className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
-              sectionTab === "cashflow"
-                ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Deposits &amp; Withdrawals ({filteredTransactions.length})
-          </button>
+      {/* BACKTESTING WIN PROBABILITY PIE CHARTS PANEL */}
+      {isBacktestMode && (
+        <BacktestStrategyPiePanel
+          backtestEntries={backtestEntries}
+          selectedStrategyFilter={selectedStrategyFilter}
+          onSelectStrategyFilter={setSelectedStrategyFilter}
+          onOpenNewBacktest={() => openCreateModal("backtest")}
+        />
+      )}
+
+      {/* Section Switcher (shown on Real/Demo; Backtesting goes straight to Backtest Setups) */}
+      {!isBacktestMode && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-xl border border-slate-800 bg-[#0E131B] p-1">
+            <button
+              type="button"
+              onClick={() => setSectionTab("trades")}
+              className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                sectionTab === "trades"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Trade Records ({filteredEntries.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSectionTab("cashflow")}
+              className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                sectionTab === "cashflow"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Deposits &amp; Withdrawals ({filteredTransactions.length})
+            </button>
+          </div>
+
+          <span className="font-mono text-[11px] text-slate-500">
+            Screenshot Storage Bucket:{" "}
+            <code className="text-emerald-400">
+              {JOURNAL_SCREENSHOTS_BUCKET}
+            </code>{" "}
+            (Max {MAX_SCREENSHOT_SIZE_MB} MB / image)
+          </span>
         </div>
+      )}
 
-        <span className="font-mono text-[11px] text-slate-500">
-          Screenshot Storage Bucket:{" "}
-          <code className="text-emerald-400">{JOURNAL_SCREENSHOTS_BUCKET}</code>{" "}
-          (Max {MAX_SCREENSHOT_SIZE_MB} MB / image)
-        </span>
-      </div>
-
-      {/* SECTION A: TRADE RECORDS LEDGER */}
-      {sectionTab === "trades" ? (
+      {/* SECTION A: TRADE / BACKTEST RECORDS LEDGER */}
+      {sectionTab === "trades" || isBacktestMode ? (
         <div className="overflow-hidden rounded-2xl border border-slate-800/90 bg-[#0E131B]">
-          {/* Toolbar */}
+          {/* Toolbar: Outcome Filters + Strategy Dropdown + Symbol Search */}
           <div className="flex flex-col gap-3 border-b border-slate-800/80 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-1.5">
               {(
@@ -1021,15 +1259,39 @@ export default function JournalPage() {
               ))}
             </div>
 
-            <div className="relative w-full lg:w-64">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter symbol (e.g. XAU)..."
-                className="w-full rounded-xl border border-slate-800 bg-[#090D13] py-1.5 pl-8 pr-3 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-emerald-500/50 focus:outline-none"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedStrategyFilter ?? ""}
+                onChange={(e) =>
+                  setSelectedStrategyFilter(e.target.value || null)
+                }
+                aria-label="Filter by strategy"
+                className="rounded-xl border border-slate-800 bg-[#090D13] px-3 py-1.5 font-mono text-xs text-slate-200 focus:border-cyan-500/50 focus:outline-none"
+              >
+                <option value="">All Strategies</option>
+                {STRATEGY_FAMILIES.map((fam) => (
+                  <optgroup key={fam} label={fam}>
+                    {STRATEGY_CATALOG.filter((s) => s.family === fam).map(
+                      (s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.shortLabel}
+                        </option>
+                      )
+                    )}
+                  </optgroup>
+                ))}
+              </select>
+
+              <div className="relative w-full sm:w-52">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter symbol..."
+                  className="w-full rounded-xl border border-slate-800 bg-[#090D13] py-1.5 pl-8 pr-3 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-emerald-500/50 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -1042,10 +1304,10 @@ export default function JournalPage() {
                     Date &amp; Time
                   </th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">
-                    Account
+                    Mode
                   </th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">
-                    Symbol
+                    Symbol &amp; Strategy
                   </th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">
                     Type
@@ -1081,7 +1343,7 @@ export default function JournalPage() {
                       colSpan={11}
                       className="px-6 py-12 text-center font-mono text-xs text-slate-400"
                     >
-                      Loading journal records...
+                      Loading records...
                     </td>
                   </tr>
                 ) : filteredEntries.length === 0 ? (
@@ -1089,33 +1351,46 @@ export default function JournalPage() {
                     <td colSpan={11} className="px-6 py-14 text-center">
                       <div className="mx-auto max-w-md space-y-3">
                         <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
-                          <BookOpen className="h-5 w-5" />
+                          {isBacktestMode ? (
+                            <FlaskConical className="h-5 w-5 text-cyan-400" />
+                          ) : (
+                            <BookOpen className="h-5 w-5" />
+                          )}
                         </div>
                         <p className="text-sm font-semibold text-slate-200">
-                          No {activeAccount === "real" ? "Real" : "Demo"} trade
-                          records found
+                          {isBacktestMode
+                            ? "No backtest records match the current filter"
+                            : `No ${
+                                activeAccount === "real" ? "Real" : "Demo"
+                              } trade records found`}
                         </p>
                         <p className="text-xs leading-relaxed text-slate-500">
-                          Use <strong>Deposit</strong> to record your starting
-                          float, and click <strong>+ New Record</strong> in the
-                          header to log trades and attach study screenshots.
+                          {isBacktestMode
+                            ? "Click + New Backtest in the header to log a setup, choose its strategy from your strategy list, and attach chart images."
+                            : "Use Deposit to record your starting float, and click + New Record in the header to log trades and attach study screenshots."}
                         </p>
                         <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                          {!isBacktestMode && (
+                            <button
+                              type="button"
+                              onClick={() => openCashflowModal("deposit")}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-[#090D13] px-3.5 py-2 text-xs font-semibold text-slate-200 hover:border-emerald-500/40"
+                            >
+                              <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
+                              <span>Record Deposit</span>
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => openCashflowModal("deposit")}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-[#090D13] px-3.5 py-2 text-xs font-semibold text-slate-200 hover:border-emerald-500/40"
-                          >
-                            <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
-                            <span>Record Deposit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openCreateModal}
+                            onClick={() => openCreateModal()}
                             className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-3.5 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25"
                           >
                             <Plus className="h-3.5 w-3.5" />
-                            <span>New Trade Record</span>
+                            <span>
+                              {isBacktestMode
+                                ? "New Backtest Setup"
+                                : "New Trade Record"}
+                            </span>
                           </button>
                         </div>
                       </div>
@@ -1142,24 +1417,48 @@ export default function JournalPage() {
                           </p>
                         </td>
 
-                        {/* Account Type (REAL / DEMO) */}
+                        {/* Mode Badge (REAL / DEMO / BACKTEST) */}
                         <td className="px-4 py-3.5 align-top whitespace-nowrap">
                           {entry.accountType === "real" ? (
                             <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300">
                               REAL
                             </span>
-                          ) : (
+                          ) : entry.accountType === "demo" ? (
                             <span className="inline-flex items-center rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-purple-300">
                               DEMO
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                              BACKTEST
                             </span>
                           )}
                         </td>
 
-                        {/* Symbol */}
-                        <td className="px-4 py-3.5 align-top whitespace-nowrap">
-                          <span className="rounded-lg border border-slate-700/80 bg-[#090D13] px-2.5 py-1 font-mono text-xs font-bold text-white">
-                            {entry.symbol}
-                          </span>
+                        {/* Symbol + Tagged Strategy + TF/Session */}
+                        <td className="px-4 py-3.5 align-top">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-lg border border-slate-700/80 bg-[#090D13] px-2.5 py-0.5 font-mono text-xs font-bold text-white">
+                              {entry.symbol}
+                            </span>
+                            {entry.timeframe && (
+                              <span className="rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                                {entry.timeframe}
+                              </span>
+                            )}
+                          </div>
+                          {entry.strategy && (
+                            <p
+                              title={formatStrategyLabel(entry.strategy, false)}
+                              className="mt-1 font-mono text-[11px] text-cyan-300/90"
+                            >
+                              {formatStrategyLabel(entry.strategy, true)}
+                            </p>
+                          )}
+                          {entry.sessionName && (
+                            <p className="font-mono text-[10px] text-slate-500">
+                              {entry.sessionName}
+                            </p>
+                          )}
                         </td>
 
                         {/* Type */}
@@ -1281,7 +1580,7 @@ export default function JournalPage() {
                           )}
                         </td>
 
-                        {/* Study Screenshots Column */}
+                        {/* Study Screenshots */}
                         <td className="px-4 py-3.5 align-top whitespace-nowrap">
                           <button
                             type="button"
@@ -1444,9 +1743,13 @@ export default function JournalPage() {
                             <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-emerald-300">
                               REAL
                             </span>
-                          ) : (
+                          ) : tx.accountType === "demo" ? (
                             <span className="rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-purple-300">
                               DEMO
+                            </span>
+                          ) : (
+                            <span className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-cyan-300">
+                              BACKTEST
                             </span>
                           )}
                         </td>
@@ -1478,9 +1781,7 @@ export default function JournalPage() {
                         </td>
 
                         <td className="px-5 py-3.5 text-xs text-slate-300">
-                          {tx.note || (
-                            <span className="text-slate-600">—</span>
-                          )}
+                          {tx.note || <span className="text-slate-600">—</span>}
                         </td>
 
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
@@ -1523,7 +1824,7 @@ export default function JournalPage() {
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL 1: CREATE / EDIT JOURNAL RECORD (+ ACCOUNT TYPE + SCREENSHOTS)  */}
+      {/* MODAL 1: NEW / EDIT RECORD OR BACKTEST (+ STRATEGY + SCREENSHOTS)     */}
       {/* ===================================================================== */}
       {modalOpen && (
         <div
@@ -1543,11 +1844,18 @@ export default function JournalPage() {
                   id="journal-modal-title"
                   className="text-lg font-bold text-white"
                 >
-                  {editingEntry ? "Edit Journal Record" : "New Journal Record"}
+                  {editingEntry
+                    ? formAccountType === "backtest"
+                      ? "Edit Backtested Setup"
+                      : "Edit Journal Record"
+                    : formAccountType === "backtest"
+                    ? "New Backtest Setup"
+                    : "New Journal Record"}
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Log Real or Demo execution details and attach chart
-                  screenshots for future study.
+                  {formAccountType === "backtest"
+                    ? "Select the strategy being backtested, enter setup metadata, and attach chart images."
+                    : "Log Real or Demo execution details, strategy metadata, and study screenshots."}
                 </p>
               </div>
               <button
@@ -1571,36 +1879,134 @@ export default function JournalPage() {
                 </div>
               )}
 
-              {/* Row 0: Account Type (Real vs Demo) */}
+              {/* Row 0: Record Mode (Real | Demo | Backtesting) */}
               <div>
                 <span className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                  Account Type (Real or Demo)
+                  Record Mode (Real, Demo, or Backtesting)
                 </span>
-                <div className="mt-1.5 grid grid-cols-2 gap-2.5">
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setFormAccountType("real")}
-                    className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 font-mono text-xs font-bold uppercase transition ${
+                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2.5 font-mono text-xs font-bold uppercase transition ${
                       formAccountType === "real"
                         ? "border-emerald-500 bg-emerald-500/15 text-emerald-300"
                         : "border-slate-800 bg-[#080B10] text-slate-400 hover:border-slate-700 hover:text-slate-200"
                     }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    REAL ACCOUNT
+                    REAL
                   </button>
                   <button
                     type="button"
                     onClick={() => setFormAccountType("demo")}
-                    className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 font-mono text-xs font-bold uppercase transition ${
+                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2.5 font-mono text-xs font-bold uppercase transition ${
                       formAccountType === "demo"
                         ? "border-purple-500 bg-purple-500/15 text-purple-300"
                         : "border-slate-800 bg-[#080B10] text-slate-400 hover:border-slate-700 hover:text-slate-200"
                     }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-purple-400" />
-                    DEMO ACCOUNT
+                    DEMO
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormAccountType("backtest")}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl border py-2.5 font-mono text-xs font-bold uppercase transition ${
+                      formAccountType === "backtest"
+                        ? "border-cyan-500 bg-cyan-500/15 text-cyan-300"
+                        : "border-slate-800 bg-[#080B10] text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 text-cyan-400" />
+                    BACKTEST
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 0.5: Strategy Selection + Timeframe & Session Metadata */}
+              <div className="space-y-3.5 rounded-xl border border-cyan-500/25 bg-[#080B10] p-4">
+                <div>
+                  <label
+                    htmlFor="journal-strategy"
+                    className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-cyan-300"
+                  >
+                    <Crosshair className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>
+                      {formAccountType === "backtest"
+                        ? "Backtested Strategy (Required)"
+                        : "Strategy Used"}
+                    </span>
+                  </label>
+                  <select
+                    id="journal-strategy"
+                    required={formAccountType === "backtest"}
+                    value={strategyId}
+                    onChange={(e) => setStrategyId(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-800 bg-[#0D121A] px-3.5 py-2.5 text-xs sm:text-sm font-medium text-white focus:border-cyan-500 focus:outline-none"
+                  >
+                    {formAccountType !== "backtest" && (
+                      <option value="">— Optional / Unspecified —</option>
+                    )}
+                    {STRATEGY_FAMILIES.map((family) => (
+                      <optgroup key={family} label={family}>
+                        {STRATEGY_CATALOG.filter(
+                          (item) => item.family === family
+                        ).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Timeframe & Session Metadata */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <span className="block font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Chart Timeframe
+                    </span>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {BACKTEST_TIMEFRAMES.map((tf) => (
+                        <button
+                          key={tf}
+                          type="button"
+                          onClick={() => setTimeframe(tf)}
+                          className={`rounded-md border px-2 py-1 font-mono text-[10px] transition ${
+                            timeframe === tf
+                              ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-300 font-bold"
+                              : "border-slate-800 bg-[#0D121A] text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="journal-session"
+                      className="block font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-400"
+                    >
+                      Trading Session
+                    </label>
+                    <select
+                      id="journal-session"
+                      value={sessionName}
+                      onChange={(e) => setSessionName(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-slate-800 bg-[#0D121A] px-3 py-1.5 font-mono text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+                    >
+                      <option value="">— Optional —</option>
+                      {BACKTEST_SESSIONS.map((sess) => (
+                        <option key={sess} value={sess}>
+                          {sess}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1787,7 +2193,9 @@ export default function JournalPage() {
                       Closing Price
                     </label>
                     <span className="font-mono text-[10px] text-slate-500">
-                      Leave blank if still open
+                      {formAccountType === "backtest"
+                        ? "Exit price (TP or SL hit)"
+                        : "Leave blank if still open"}
                     </span>
                   </div>
                   <input
@@ -1858,7 +2266,11 @@ export default function JournalPage() {
                     className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-300"
                   >
                     <Calendar className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Date &amp; Time</span>
+                    <span>
+                      {formAccountType === "backtest"
+                        ? "Historical Setup Date & Time"
+                        : "Date & Time"}
+                    </span>
                   </label>
                   <button
                     type="button"
@@ -1887,14 +2299,14 @@ export default function JournalPage() {
                     htmlFor="journal-notes"
                     className="block text-xs font-semibold uppercase tracking-wider text-slate-300"
                   >
-                    Study Notes (Optional)
+                    Study / Backtest Notes (Optional)
                   </label>
                   <textarea
                     id="journal-notes"
                     rows={2}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Setup confluences (e.g. NY AM Liquidity Sweep + 5M FVG + Body-Close MSS)..."
+                    placeholder="Confluences observed (e.g. Prior session closed outside VA + 15M POC wick rejection → clean 2R hit)..."
                     className="mt-1.5 w-full rounded-xl border border-slate-800 bg-[#080B10] px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -1904,7 +2316,7 @@ export default function JournalPage() {
                     <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-cyan-300">
                       <Camera className="h-3.5 w-3.5 text-cyan-400" />
                       <span>
-                        Trade Screenshots ({JOURNAL_SCREENSHOTS_BUCKET})
+                        Attach Setup Images ({JOURNAL_SCREENSHOTS_BUCKET})
                       </span>
                     </span>
                     <span className="font-mono text-[10px] text-slate-500">
@@ -1912,7 +2324,6 @@ export default function JournalPage() {
                     </span>
                   </div>
 
-                  {/* Existing screenshots when editing */}
                   {editingEntry &&
                     (screenshotsByEntry[editingEntry.id] || []).length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -1942,7 +2353,6 @@ export default function JournalPage() {
                       </div>
                     )}
 
-                  {/* Staged files ready for upload */}
                   {stagedFiles.length > 0 && (
                     <div className="mt-2 space-y-1.5">
                       {stagedFiles.map((file, i) => (
@@ -2034,7 +2444,7 @@ export default function JournalPage() {
 
                   <div>
                     <span className="font-mono text-[10px] text-slate-500">
-                      Realized P&amp;L
+                      Outcome / P&amp;L
                     </span>
                     <p
                       className={`font-mono text-xs font-bold tabular-nums ${
@@ -2068,7 +2478,11 @@ export default function JournalPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-bold text-slate-950 transition disabled:opacity-60 ${
+                    formAccountType === "backtest"
+                      ? "bg-cyan-400 hover:bg-cyan-300"
+                      : "bg-emerald-500 hover:bg-emerald-400"
+                  }`}
                 >
                   <Plus className="h-4 w-4 stroke-[2.5]" />
                   <span>
@@ -2076,6 +2490,8 @@ export default function JournalPage() {
                       ? "Saving..."
                       : editingEntry
                       ? "Save Changes"
+                      : formAccountType === "backtest"
+                      ? "Save Backtest Setup"
                       : "Save Record"}
                   </span>
                 </button>
@@ -2131,7 +2547,6 @@ export default function JournalPage() {
                 </div>
               )}
 
-              {/* Switch Deposit vs Withdrawal */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -2159,7 +2574,6 @@ export default function JournalPage() {
                 </button>
               </div>
 
-              {/* Account Selector */}
               <div>
                 <span className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
                   Target Account
@@ -2190,7 +2604,6 @@ export default function JournalPage() {
                 </div>
               </div>
 
-              {/* Amount ($) */}
               <div>
                 <label
                   htmlFor="cashflow-amount"
@@ -2216,7 +2629,6 @@ export default function JournalPage() {
                 </div>
               </div>
 
-              {/* Date & Time */}
               <div>
                 <label
                   htmlFor="cashflow-datetime"
@@ -2234,7 +2646,6 @@ export default function JournalPage() {
                 />
               </div>
 
-              {/* Optional Reference / Note */}
               <div>
                 <label
                   htmlFor="cashflow-note"
@@ -2286,7 +2697,7 @@ export default function JournalPage() {
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL 3: TRADE STUDY & SCREENSHOTS GALLERY LIGHTBOX                   */}
+      {/* MODAL 3: TRADE / BACKTEST STUDY & SCREENSHOTS GALLERY LIGHTBOX        */}
       {/* ===================================================================== */}
       {studyEntry && (
         <div
@@ -2300,28 +2711,45 @@ export default function JournalPage() {
             onClick={(e) => e.stopPropagation()}
             className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#0B0F16] shadow-2xl"
           >
-            {/* Header */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span
-                  className={`rounded-md border px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${
-                    studyEntry.accountType === "real"
-                      ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"
-                      : "border-purple-500/35 bg-purple-500/12 text-purple-300"
-                  }`}
-                >
-                  {studyEntry.accountType}
-                </span>
-                <h3 className="font-mono text-base font-bold text-white">
-                  {studyEntry.symbol} · {studyEntry.tradeType.toUpperCase()} (
-                  {studyEntry.lotSize} Lots @ 1:{studyEntry.leverage})
-                </h3>
-                <span className="font-mono text-xs text-slate-400">
-                  {formatPrice(studyEntry.openingPrice, studyEntry.symbol)} →{" "}
-                  {studyEntry.closingPrice !== null
-                    ? formatPrice(studyEntry.closingPrice, studyEntry.symbol)
-                    : "OPEN"}
-                </span>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-md border px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${
+                      studyEntry.accountType === "real"
+                        ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"
+                        : studyEntry.accountType === "demo"
+                        ? "border-purple-500/35 bg-purple-500/12 text-purple-300"
+                        : "border-cyan-500/35 bg-cyan-500/12 text-cyan-300"
+                    }`}
+                  >
+                    {studyEntry.accountType}
+                  </span>
+                  <h3 className="font-mono text-base font-bold text-white">
+                    {studyEntry.symbol} · {studyEntry.tradeType.toUpperCase()} (
+                    {studyEntry.lotSize} Lots @ 1:{studyEntry.leverage})
+                  </h3>
+                  <span className="font-mono text-xs text-slate-400">
+                    {formatPrice(studyEntry.openingPrice, studyEntry.symbol)} →{" "}
+                    {studyEntry.closingPrice !== null
+                      ? formatPrice(studyEntry.closingPrice, studyEntry.symbol)
+                      : "OPEN"}
+                  </span>
+                </div>
+
+                {(studyEntry.strategy ||
+                  studyEntry.timeframe ||
+                  studyEntry.sessionName) && (
+                  <p className="font-mono text-xs text-cyan-300">
+                    {studyEntry.strategy
+                      ? formatStrategyLabel(studyEntry.strategy, false)
+                      : "Unspecified Strategy"}
+                    {studyEntry.timeframe ? ` · ${studyEntry.timeframe}` : ""}
+                    {studyEntry.sessionName
+                      ? ` · ${studyEntry.sessionName}`
+                      : ""}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -2354,7 +2782,6 @@ export default function JournalPage() {
               </div>
             </div>
 
-            {/* Body */}
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               {studyShotError && (
                 <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-200">
@@ -2375,7 +2802,7 @@ export default function JournalPage() {
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-[#080B10] py-16 text-center px-4">
                   <Camera className="h-8 w-8 text-slate-500 mb-3" />
                   <p className="text-sm font-semibold text-slate-200">
-                    No study screenshots attached to this record yet
+                    No study screenshots attached to this setup yet
                   </p>
                   <p className="mt-1 max-w-md text-xs text-slate-500">
                     Upload your TradingView entry/exit screenshots (up to{" "}
@@ -2393,7 +2820,6 @@ export default function JournalPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Active Selected Screenshot */}
                   {studyEntryScreenshots[activeShotIndex] && (
                     <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#05070B]">
                       <div className="flex items-center justify-between border-b border-slate-800/80 px-4 py-2.5 text-xs">
@@ -2440,7 +2866,6 @@ export default function JournalPage() {
                     </div>
                   )}
 
-                  {/* Thumbnails Strip */}
                   {studyEntryScreenshots.length > 1 && (
                     <div className="flex flex-wrap gap-2">
                       {studyEntryScreenshots.map((shot, idx) => (

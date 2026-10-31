@@ -1,7 +1,12 @@
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import {
+  formatStrategyLabel,
+  getStrategyById,
+  type StrategyFamily,
+} from "@/lib/strategies";
 
-export type AccountType = "real" | "demo";
+export type AccountType = "real" | "demo" | "backtest";
 export type TradeType = "buy" | "sell";
 export type TradeOutcome = "open" | "win" | "loss" | "breakeven";
 export type CashflowType = "deposit" | "withdrawal";
@@ -22,6 +27,9 @@ const ALLOWED_SCREENSHOT_MIME_TYPES = new Set([
 export interface JournalEntry {
   id: string;
   accountType: AccountType;
+  strategy?: string | null;
+  timeframe?: string | null;
+  sessionName?: string | null;
   symbol: string;
   tradeType: TradeType;
   lotSize: number;
@@ -39,6 +47,9 @@ export interface JournalEntry {
 
 export interface JournalEntryInput {
   accountType: AccountType;
+  strategy?: string | null;
+  timeframe?: string | null;
+  sessionName?: string | null;
   symbol: string;
   tradeType: TradeType;
   lotSize: number;
@@ -108,6 +119,34 @@ export interface AccountBalanceSummary {
   freeMargin: number;
   depositCount: number;
   withdrawalCount: number;
+}
+
+export interface StrategyProbabilityStat {
+  key: string;
+  label: string;
+  shortLabel: string;
+  family: StrategyFamily | "Custom / Unspecified";
+  accentHex: string;
+  totalTrades: number;
+  closedCount: number;
+  openCount: number;
+  wins: number;
+  losses: number;
+  breakevens: number;
+  winRatePct: number | null; // Wins / (Wins + Losses)
+  lossRatePct: number | null; // Losses / (Wins + Losses)
+  winSlicePct: number; // Wins / Closed
+  lossSlicePct: number; // Losses / Closed
+  beSlicePct: number; // Breakevens / Closed
+  netPnlUsd: number;
+  profitFactor: number | null;
+  avgRR: number | null;
+}
+
+function parseAccountType(raw?: string | null): AccountType {
+  if (raw === "demo") return "demo";
+  if (raw === "backtest") return "backtest";
+  return "real";
 }
 
 export const POPULAR_SYMBOLS = [
@@ -553,6 +592,159 @@ export function computeAccountBalanceSummary(
   };
 }
 
+export function computeStrategyProbabilityStats(
+  entries: JournalEntry[],
+  groupBy: "setup" | "family" = "setup"
+): StrategyProbabilityStat[] {
+  const buckets = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      shortLabel: string;
+      family: StrategyFamily | "Custom / Unspecified";
+      accentHex: string;
+      totalTrades: number;
+      openCount: number;
+      wins: number;
+      losses: number;
+      breakevens: number;
+      grossProfit: number;
+      grossLossAbs: number;
+      netPnlUsd: number;
+      rrValues: number[];
+    }
+  >();
+
+  for (const entry of entries) {
+    const def = getStrategyById(entry.strategy);
+    let bucketKey: string;
+    let label: string;
+    let shortLabel: string;
+    let family: StrategyFamily | "Custom / Unspecified";
+    let accentHex: string;
+
+    if (groupBy === "family") {
+      family = def ? def.family : "Custom / Unspecified";
+      bucketKey = family;
+      label = family;
+      shortLabel = family;
+      accentHex =
+        family === "Pullback Strategy"
+          ? "#10b981"
+          : family === "Volume Profile Strategy"
+          ? "#38bdf8"
+          : "#94a3b8";
+    } else {
+      bucketKey = entry.strategy || "unspecified";
+      label = formatStrategyLabel(entry.strategy, false);
+      shortLabel = formatStrategyLabel(entry.strategy, true);
+      family = def ? def.family : "Custom / Unspecified";
+      accentHex = def ? def.accentHex : "#94a3b8";
+    }
+
+    if (!buckets.has(bucketKey)) {
+      buckets.set(bucketKey, {
+        key: bucketKey,
+        label,
+        shortLabel,
+        family,
+        accentHex,
+        totalTrades: 0,
+        openCount: 0,
+        wins: 0,
+        losses: 0,
+        breakevens: 0,
+        grossProfit: 0,
+        grossLossAbs: 0,
+        netPnlUsd: 0,
+        rrValues: [],
+      });
+    }
+
+    const b = buckets.get(bucketKey)!;
+    b.totalTrades += 1;
+
+    const m = computeTradeMetrics(entry);
+    if (m.plannedRR !== null && m.plannedRR > 0) {
+      b.rrValues.push(m.plannedRR);
+    }
+
+    if (m.outcome === "open") {
+      b.openCount += 1;
+    } else if (m.outcome === "win") {
+      b.wins += 1;
+      const pnl = m.realizedPnlUsd ?? 0;
+      b.grossProfit += pnl;
+      b.netPnlUsd += pnl;
+    } else if (m.outcome === "loss") {
+      b.losses += 1;
+      const pnl = m.realizedPnlUsd ?? 0;
+      b.grossLossAbs += Math.abs(pnl);
+      b.netPnlUsd += pnl;
+    } else {
+      b.breakevens += 1;
+    }
+  }
+
+  const results: StrategyProbabilityStat[] = [];
+  buckets.forEach((b) => {
+    const closedCount = b.wins + b.losses + b.breakevens;
+    const decisiveCount = b.wins + b.losses;
+    const winRatePct =
+      decisiveCount > 0 ? (b.wins / decisiveCount) * 100 : null;
+    const lossRatePct =
+      decisiveCount > 0 ? (b.losses / decisiveCount) * 100 : null;
+
+    const winSlicePct = closedCount > 0 ? (b.wins / closedCount) * 100 : 0;
+    const lossSlicePct = closedCount > 0 ? (b.losses / closedCount) * 100 : 0;
+    const beSlicePct =
+      closedCount > 0 ? (b.breakevens / closedCount) * 100 : 0;
+
+    const profitFactor =
+      b.grossLossAbs > 0
+        ? b.grossProfit / b.grossLossAbs
+        : b.grossProfit > 0
+        ? Infinity
+        : null;
+
+    const avgRR =
+      b.rrValues.length > 0
+        ? b.rrValues.reduce((acc, v) => acc + v, 0) / b.rrValues.length
+        : null;
+
+    results.push({
+      key: b.key,
+      label: b.label,
+      shortLabel: b.shortLabel,
+      family: b.family,
+      accentHex: b.accentHex,
+      totalTrades: b.totalTrades,
+      closedCount,
+      openCount: b.openCount,
+      wins: b.wins,
+      losses: b.losses,
+      breakevens: b.breakevens,
+      winRatePct,
+      lossRatePct,
+      winSlicePct,
+      lossSlicePct,
+      beSlicePct,
+      netPnlUsd: b.netPnlUsd,
+      profitFactor,
+      avgRR,
+    });
+  });
+
+  // Sort by most tested first, then highest win rate
+  results.sort((a, b) => {
+    if (b.totalTrades !== a.totalTrades) return b.totalTrades - a.totalTrades;
+    return (b.winRatePct ?? 0) - (a.winRatePct ?? 0);
+  });
+
+  return results;
+}
+
 export function formatPrice(price: number | null, symbol: string): string {
   if (price === null || !Number.isFinite(price)) return "—";
   const key = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -661,7 +853,10 @@ async function listLocalEntries(): Promise<JournalEntry[]> {
         .map(
           (r): JournalEntry => ({
             id: r.id || makeUuid(),
-            accountType: r.accountType === "demo" ? "demo" : "real",
+            accountType: parseAccountType(r.accountType),
+            strategy: r.strategy ?? null,
+            timeframe: r.timeframe ?? null,
+            sessionName: r.sessionName ?? null,
             symbol: r.symbol || "XAU/USD",
             tradeType: r.tradeType === "sell" ? "sell" : "buy",
             lotSize: Number(r.lotSize) || 0.01,
@@ -870,6 +1065,9 @@ interface SupabaseJournalRow {
   id: string;
   user_id: string;
   account_type?: string;
+  strategy?: string | null;
+  timeframe?: string | null;
+  session_name?: string | null;
   symbol: string;
   trade_type: TradeType;
   lot_size: number | string;
@@ -887,7 +1085,10 @@ interface SupabaseJournalRow {
 function mapRowToEntry(row: SupabaseJournalRow): JournalEntry {
   return {
     id: row.id,
-    accountType: row.account_type === "demo" ? "demo" : "real",
+    accountType: parseAccountType(row.account_type),
+    strategy: row.strategy ?? null,
+    timeframe: row.timeframe ?? null,
+    sessionName: row.session_name ?? null,
     symbol: row.symbol,
     tradeType: row.trade_type,
     lotSize: Number(row.lot_size),
@@ -976,6 +1177,9 @@ export async function createJournalEntry(
   const buildLocalRecord = (): JournalEntry => ({
     id: makeUuid(),
     accountType: input.accountType,
+    strategy: input.strategy?.trim() || null,
+    timeframe: input.timeframe?.trim() || null,
+    sessionName: input.sessionName?.trim() || null,
     symbol: normalizedSymbol,
     tradeType: input.tradeType,
     lotSize: input.lotSize,
@@ -1009,6 +1213,9 @@ export async function createJournalEntry(
     .insert({
       user_id: user.id,
       account_type: input.accountType,
+      strategy: input.strategy?.trim() || null,
+      timeframe: input.timeframe?.trim() || null,
+      session_name: input.sessionName?.trim() || null,
       symbol: normalizedSymbol,
       trade_type: input.tradeType,
       lot_size: input.lotSize,
@@ -1027,8 +1234,10 @@ export async function createJournalEntry(
     if (
       error.code === "42P01" ||
       error.code === "42703" ||
+      error.code === "23514" ||
       error.message?.includes("journal_entries") ||
-      error.message?.includes("account_type")
+      error.message?.includes("account_type") ||
+      error.message?.includes("strategy")
     ) {
       return saveLocalEntry(buildLocalRecord());
     }
@@ -1055,6 +1264,9 @@ export async function updateJournalEntry(
     const updated: JournalEntry = {
       id,
       accountType: input.accountType,
+      strategy: input.strategy?.trim() || null,
+      timeframe: input.timeframe?.trim() || null,
+      sessionName: input.sessionName?.trim() || null,
       symbol: normalizedSymbol,
       tradeType: input.tradeType,
       lotSize: input.lotSize,
@@ -1077,6 +1289,9 @@ export async function updateJournalEntry(
     .from("journal_entries")
     .update({
       account_type: input.accountType,
+      strategy: input.strategy?.trim() || null,
+      timeframe: input.timeframe?.trim() || null,
+      session_name: input.sessionName?.trim() || null,
       symbol: normalizedSymbol,
       trade_type: input.tradeType,
       lot_size: input.lotSize,
@@ -1152,7 +1367,7 @@ interface SupabaseTxRow {
 function mapRowToTx(row: SupabaseTxRow): CashflowTransaction {
   return {
     id: row.id,
-    accountType: row.account_type === "demo" ? "demo" : "real",
+    accountType: parseAccountType(row.account_type),
     txType: row.tx_type === "withdrawal" ? "withdrawal" : "deposit",
     amount: Number(row.amount),
     note: row.note,

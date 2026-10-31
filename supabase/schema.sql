@@ -6,6 +6,7 @@
 --   - 20261030000002_trading_journal.sql
 --   - 20261030000003_journal_cashflow_and_screenshots.sql
 --   - 20261030000004_volume_profile_reference_scope.sql
+--   - 20261030000005_journal_backtesting_and_strategy.sql
 -- ============================================================================
 
 -- 1. Profiles Table
@@ -236,7 +237,7 @@ create policy "Users can delete own journal entries"
 create table if not exists public.journal_transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  account_type text not null default 'real' check (account_type in ('real', 'demo')),
+  account_type text not null default 'real' check (account_type in ('real', 'demo', 'backtest')),
   tx_type text not null check (tx_type in ('deposit', 'withdrawal')),
   amount numeric(16, 2) not null check (amount > 0),
   note text,
