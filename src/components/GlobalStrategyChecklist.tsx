@@ -73,6 +73,51 @@ export const GLOBAL_CHECKLIST_ITEMS: GlobalChecklistItem[] = [
   },
 ];
 
+function GlobalMiniCandles({
+  candles,
+}: {
+  candles: Array<{
+    x: number;
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+  }>;
+}) {
+  return (
+    <g>
+      {candles.map((c, idx) => {
+        const bull = c.close <= c.open;
+        const top = Math.min(c.open, c.close);
+        const bottom = Math.max(c.open, c.close);
+        const h = Math.max(3, bottom - top);
+        const color = bull ? "#10b981" : "#f43f5e";
+        return (
+          <g key={idx}>
+            <line
+              x1={c.x}
+              y1={Math.min(c.high, top)}
+              x2={c.x}
+              y2={Math.max(c.low, bottom)}
+              stroke={color}
+              strokeWidth={1.4}
+              strokeLinecap="round"
+            />
+            <rect
+              x={c.x - 4.5}
+              y={top}
+              width={9}
+              height={h}
+              rx={1.5}
+              fill={color}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function GlobalChecklistSvg({
   kind,
   direction = "bullish",
@@ -115,38 +160,42 @@ function GlobalChecklistSvg({
 
           {isBuyExample ? (
             <>
-              {/* Heavy Downtrend Structure (LH -> LL) */}
-              <polyline
-                points="32,50 82,92 118,70 175,126 212,102 262,155 298,162"
-                fill="none"
-                stroke="#f43f5e"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {/* Local Strategy Buy Level getting sliced */}
               <line
-                x1="155"
-                y1="126"
+                x1="138"
+                y1="112"
                 x2="310"
-                y2="126"
+                y2="112"
                 stroke="#38bdf8"
                 strokeWidth="1.3"
                 strokeDasharray="4 3"
               />
-              <circle cx="236" cy="126" r="5" fill="#f59e0b" />
+              {/* Heavy LH -> LL Downtrend Candlesticks Slicing Local Buy Level */}
+              <GlobalMiniCandles
+                candles={[
+                  { x: 38, open: 46, close: 68, high: 42, low: 72 },
+                  { x: 64, open: 68, close: 92, high: 65, low: 96 },
+                  { x: 90, open: 92, close: 74, high: 70, low: 95 },
+                  { x: 116, open: 74, close: 98, high: 72, low: 102 },
+                  { x: 142, open: 98, close: 114, high: 95, low: 118 },
+                  { x: 168, open: 114, close: 96, high: 92, low: 116 },
+                  { x: 194, open: 96, close: 112, high: 94, low: 116 },
+                  { x: 220, open: 112, close: 132, high: 108, low: 136 },
+                  { x: 246, open: 132, close: 142, high: 128, low: 146 },
+                  { x: 272, open: 142, close: 134, high: 130, low: 145 },
+                ]}
+              />
               <text
                 x="24"
-                y="150"
+                y="153"
                 fill="#94a3b8"
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Dominant LH → LL Downtrend
+                Dominant LH → LL Downtrend Candles
               </text>
               <text
                 x="24"
-                y="165"
+                y="167"
                 fill="#fda4af"
                 fontSize="9.5"
                 fontFamily="monospace"
@@ -156,37 +205,42 @@ function GlobalChecklistSvg({
             </>
           ) : (
             <>
-              {/* Heavy Uptrend Structure (HL -> HH) */}
-              <polyline
-                points="32,148 82,106 118,124 175,74 212,94 262,46 298,38"
-                fill="none"
-                stroke="#10b981"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
               <line
-                x1="155"
-                y1="74"
+                x1="138"
+                y1="76"
                 x2="310"
-                y2="74"
+                y2="76"
                 stroke="#38bdf8"
                 strokeWidth="1.3"
                 strokeDasharray="4 3"
               />
-              <circle cx="236" cy="74" r="5" fill="#f59e0b" />
+              {/* Heavy HL -> HH Uptrend Candlesticks Slicing Local Sell Level */}
+              <GlobalMiniCandles
+                candles={[
+                  { x: 38, open: 138, close: 116, high: 112, low: 142 },
+                  { x: 64, open: 116, close: 94, high: 90, low: 120 },
+                  { x: 90, open: 94, close: 112, high: 92, low: 116 },
+                  { x: 116, open: 112, close: 88, high: 84, low: 114 },
+                  { x: 142, open: 88, close: 74, high: 70, low: 92 },
+                  { x: 168, open: 74, close: 92, high: 72, low: 96 },
+                  { x: 194, open: 92, close: 76, high: 72, low: 95 },
+                  { x: 220, open: 76, close: 56, high: 52, low: 79 },
+                  { x: 246, open: 56, close: 44, high: 40, low: 60 },
+                  { x: 272, open: 44, close: 52, high: 42, low: 56 },
+                ]}
+              />
               <text
                 x="24"
-                y="150"
+                y="153"
                 fill="#94a3b8"
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Dominant HL → HH Uptrend
+                Dominant HL → HH Uptrend Candles
               </text>
               <text
                 x="24"
-                y="165"
+                y="167"
                 fill="#fda4af"
                 fontSize="9.5"
                 fontFamily="monospace"
@@ -220,36 +274,41 @@ function GlobalChecklistSvg({
 
           {isBuyExample ? (
             <>
-              <polyline
-                points="372,142 430,90 468,114 534,62 576,92 644,44"
-                fill="none"
-                stroke="#10b981"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
               <line
                 x1="418"
-                y1="92"
+                y1="96"
                 x2="650"
-                y2="92"
+                y2="96"
                 stroke="#10b981"
                 strokeWidth="1.3"
                 strokeDasharray="4 3"
               />
-              <circle cx="576" cy="92" r="5.5" fill="#10b981" />
+              <GlobalMiniCandles
+                candles={[
+                  { x: 378, open: 138, close: 116, high: 112, low: 142 },
+                  { x: 404, open: 116, close: 92, high: 88, low: 120 },
+                  { x: 430, open: 92, close: 110, high: 90, low: 114 },
+                  { x: 456, open: 110, close: 84, high: 80, low: 112 },
+                  { x: 482, open: 84, close: 64, high: 60, low: 88 },
+                  { x: 508, open: 64, close: 82, high: 62, low: 86 },
+                  { x: 534, open: 82, close: 94, high: 80, low: 100 },
+                  { x: 560, open: 94, close: 72, high: 68, low: 98 },
+                  { x: 586, open: 72, close: 52, high: 48, low: 76 },
+                  { x: 612, open: 52, close: 42, high: 38, low: 56 },
+                ]}
+              />
               <text
                 x="364"
-                y="150"
+                y="153"
                 fill="#94a3b8"
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Prevailing HH → HL Bullish Trend
+                Prevailing HH → HL Bullish Candles
               </text>
               <text
                 x="364"
-                y="165"
+                y="167"
                 fill="#6ee7b7"
                 fontSize="9.5"
                 fontFamily="monospace"
@@ -259,32 +318,37 @@ function GlobalChecklistSvg({
             </>
           ) : (
             <>
-              <polyline
-                points="372,48 430,98 468,74 534,126 576,96 644,146"
-                fill="none"
-                stroke="#f43f5e"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
               <line
                 x1="418"
-                y1="96"
+                y1="92"
                 x2="650"
-                y2="96"
+                y2="92"
                 stroke="#f43f5e"
                 strokeWidth="1.3"
                 strokeDasharray="4 3"
               />
-              <circle cx="576" cy="96" r="5.5" fill="#10b981" />
+              <GlobalMiniCandles
+                candles={[
+                  { x: 378, open: 48, close: 70, high: 44, low: 74 },
+                  { x: 404, open: 70, close: 94, high: 66, low: 98 },
+                  { x: 430, open: 94, close: 76, high: 72, low: 96 },
+                  { x: 456, open: 76, close: 102, high: 74, low: 106 },
+                  { x: 482, open: 102, close: 122, high: 98, low: 126 },
+                  { x: 508, open: 122, close: 104, high: 100, low: 124 },
+                  { x: 534, open: 104, close: 92, high: 86, low: 106 },
+                  { x: 560, open: 92, close: 114, high: 88, low: 118 },
+                  { x: 586, open: 114, close: 132, high: 110, low: 136 },
+                  { x: 612, open: 132, close: 142, high: 128, low: 146 },
+                ]}
+              />
               <text
                 x="364"
-                y="150"
+                y="153"
                 fill="#94a3b8"
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Prevailing LH → LL Bearish Trend
+                Prevailing LH → LL Bearish Candles
               </text>
               <text
                 x="364"
