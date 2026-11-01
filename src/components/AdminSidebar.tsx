@@ -35,6 +35,11 @@ const STRATEGY_ITEMS = [
     href: "/admin/strategy/volume-profile-strategy",
     badge: "3 Setups",
   },
+  {
+    label: "Liquidity Sweep",
+    href: "/admin/strategy/liquidity-sweep-strategy",
+    badge: "5 Steps",
+  },
 ];
 
 export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {

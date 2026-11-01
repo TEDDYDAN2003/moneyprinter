@@ -157,6 +157,37 @@ export default async function AdminOverviewPage({
           </div>
         </Link>
 
+        {/* Liquidity Sweep Strategy Module Card */}
+        <Link
+          href={`/admin/strategy/liquidity-sweep-strategy${suffix}`}
+          className="group relative flex flex-col justify-between rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 transition hover:border-emerald-500/40 hover:bg-[#111823]"
+        >
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+                <Crosshair className="h-5 w-5" />
+              </div>
+              <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+                Hover Strategy → Liquidity Sweep
+              </span>
+            </div>
+
+            <h2 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors">
+              Liquidity Sweep Strategy
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+              Bullish &amp; Bearish 5-step liquidity blueprint (`ERL` vs `IRL`,
+              `BOS`/`CHoCH` Order Flow, Liquidity Runs vs Sweeps, `4H → 15M`
+              Silver Bullet FVG, plus Global Confirmation Gate).
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
+            <span>Open Liquidity Sweep Blueprint</span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </div>
+        </Link>
+
         {/* Timezones Module Card */}
         <Link
           href={`/admin/timezones${suffix}`}

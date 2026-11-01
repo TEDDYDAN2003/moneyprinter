@@ -634,6 +634,8 @@ export function computeStrategyProbabilityStats(
           ? "#10b981"
           : family === "Volume Profile Strategy"
           ? "#38bdf8"
+          : family === "Liquidity Sweep Strategy"
+          ? "#14b8a6"
           : "#94a3b8";
     } else {
       bucketKey = entry.strategy || "unspecified";

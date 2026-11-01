@@ -1,4 +1,7 @@
-export type StrategyFamily = "Pullback Strategy" | "Volume Profile Strategy";
+export type StrategyFamily =
+  | "Pullback Strategy"
+  | "Volume Profile Strategy"
+  | "Liquidity Sweep Strategy";
 
 export interface StrategyDefinition {
   id: string;
@@ -121,11 +124,46 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     href: "/admin/strategy/volume-profile-strategy",
     accentHex: "#fbbf24",
   },
+
+  // 3. Liquidity Sweep Strategy (/admin/strategy/liquidity-sweep-strategy)
+  {
+    id: "liq-bullish-sweep",
+    family: "Liquidity Sweep Strategy",
+    label: "Liquidity Sweep — Bullish SSL Sweep + Silver Bullet Entry",
+    shortLabel: "Liquidity · Bullish Sweep",
+    href: "/admin/strategy/liquidity-sweep-strategy",
+    accentHex: "#14b8a6",
+  },
+  {
+    id: "liq-bearish-sweep",
+    family: "Liquidity Sweep Strategy",
+    label: "Liquidity Sweep — Bearish BSL Sweep + Silver Bullet Entry",
+    shortLabel: "Liquidity · Bearish Sweep",
+    href: "/admin/strategy/liquidity-sweep-strategy",
+    accentHex: "#f43f5e",
+  },
+  {
+    id: "liq-bullish-run",
+    family: "Liquidity Sweep Strategy",
+    label: "Liquidity Run — Bullish Continuation (FVG Over/Above BSL)",
+    shortLabel: "Liquidity · Bullish Run",
+    href: "/admin/strategy/liquidity-sweep-strategy",
+    accentHex: "#2dd4bf",
+  },
+  {
+    id: "liq-bearish-run",
+    family: "Liquidity Sweep Strategy",
+    label: "Liquidity Run — Bearish Continuation (FVG Over/Below SSL)",
+    shortLabel: "Liquidity · Bearish Run",
+    href: "/admin/strategy/liquidity-sweep-strategy",
+    accentHex: "#fb7185",
+  },
 ];
 
 export const STRATEGY_FAMILIES: StrategyFamily[] = [
   "Pullback Strategy",
   "Volume Profile Strategy",
+  "Liquidity Sweep Strategy",
 ];
 
 export const BACKTEST_TIMEFRAMES = [
