@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -125,7 +125,46 @@ function GlobalChecklistSvg({
   kind: GlobalChecklistDiagramKind;
   direction?: "bullish" | "bearish";
 }) {
+  const uid = useId().replace(/:/g, "");
   const isBuyExample = direction !== "bearish";
+
+  const arrowDefs = (
+    <defs>
+      <marker
+        id={`${uid}-g-emerald`}
+        viewBox="0 0 10 10"
+        refX="7.5"
+        refY="5"
+        markerWidth="6.5"
+        markerHeight="6.5"
+        orient="auto-start-reverse"
+      >
+        <path d="M 0 1 L 9 5 L 0 9 L 2.2 5 z" fill="#34d399" />
+      </marker>
+      <marker
+        id={`${uid}-g-rose`}
+        viewBox="0 0 10 10"
+        refX="7.5"
+        refY="5"
+        markerWidth="6.5"
+        markerHeight="6.5"
+        orient="auto-start-reverse"
+      >
+        <path d="M 0 1 L 9 5 L 0 9 L 2.2 5 z" fill="#fb7185" />
+      </marker>
+      <marker
+        id={`${uid}-g-amber`}
+        viewBox="0 0 10 10"
+        refX="7.5"
+        refY="5"
+        markerWidth="6.5"
+        markerHeight="6.5"
+        orient="auto-start-reverse"
+      >
+        <path d="M 0 1 L 9 5 L 0 9 L 2.2 5 z" fill="#fbbf24" />
+      </marker>
+    </defs>
+  );
 
   if (kind === "market_trend") {
     return (
@@ -136,6 +175,7 @@ function GlobalChecklistSvg({
           role="img"
           aria-label="Global Check 1: Contradicting vs Aligned Current Market Trend"
         >
+          {arrowDefs}
           {/* Left Panel: Contradicting Current Trend (High Risk) */}
           <rect
             x="10"
@@ -184,6 +224,15 @@ function GlobalChecklistSvg({
                   { x: 272, open: 142, close: 134, high: 130, low: 145 },
                 ]}
               />
+              <polyline
+                points="38,42 64,96 90,70 142,118 168,92 246,146 296,138"
+                fill="none"
+                stroke="#fb7185"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                markerEnd={`url(#${uid}-g-rose)`}
+              />
               <text
                 x="24"
                 y="153"
@@ -191,7 +240,7 @@ function GlobalChecklistSvg({
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Dominant LH → LL Downtrend Candles
+                Dominant LH → LL Downtrend Candles + Arrow
               </text>
               <text
                 x="24"
@@ -229,6 +278,15 @@ function GlobalChecklistSvg({
                   { x: 272, open: 44, close: 52, high: 42, low: 56 },
                 ]}
               />
+              <polyline
+                points="38,142 64,90 90,116 142,70 168,96 246,40 296,46"
+                fill="none"
+                stroke="#34d399"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                markerEnd={`url(#${uid}-g-emerald)`}
+              />
               <text
                 x="24"
                 y="153"
@@ -236,7 +294,7 @@ function GlobalChecklistSvg({
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Dominant HL → HH Uptrend Candles
+                Dominant HL → HH Uptrend Candles + Arrow
               </text>
               <text
                 x="24"
@@ -297,6 +355,15 @@ function GlobalChecklistSvg({
                   { x: 612, open: 52, close: 42, high: 38, low: 56 },
                 ]}
               />
+              <polyline
+                points="378,142 404,88 430,114 482,60 534,100 632,36"
+                fill="none"
+                stroke="#34d399"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                markerEnd={`url(#${uid}-g-emerald)`}
+              />
               <text
                 x="364"
                 y="153"
@@ -304,7 +371,7 @@ function GlobalChecklistSvg({
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Prevailing HH → HL Bullish Candles
+                Prevailing HH → HL Candles + Flow Arrow
               </text>
               <text
                 x="364"
@@ -341,6 +408,15 @@ function GlobalChecklistSvg({
                   { x: 612, open: 132, close: 142, high: 128, low: 146 },
                 ]}
               />
+              <polyline
+                points="378,44 404,98 430,72 482,126 534,86 632,148"
+                fill="none"
+                stroke="#fb7185"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                markerEnd={`url(#${uid}-g-rose)`}
+              />
               <text
                 x="364"
                 y="153"
@@ -348,7 +424,7 @@ function GlobalChecklistSvg({
                 fontSize="9.5"
                 fontFamily="monospace"
               >
-                Prevailing LH → LL Bearish Candles
+                Prevailing LH → LL Candles + Flow Arrow
               </text>
               <text
                 x="364"
@@ -366,7 +442,7 @@ function GlobalChecklistSvg({
     );
   }
 
-  // Diagram 2: Candlestick Pattern & Aggressive Opposing Momentum
+  // Diagram 2: Candlestick Pattern & Aggressive Opposing Momentum (Candles + Momentum Arrows)
   return (
     <div className="overflow-hidden rounded-xl border border-slate-800/90 bg-[#070A0F] p-3">
       <svg
@@ -375,6 +451,7 @@ function GlobalChecklistSvg({
         role="img"
         aria-label="Global Check 2: Aggressive Opposing Candles vs Confirmed Candlestick Rejection"
       >
+        {arrowDefs}
         {/* Left Panel: Aggressive Opposing Candles (No Buyers / Sellers) */}
         <rect
           x="10"
@@ -399,7 +476,6 @@ function GlobalChecklistSvg({
             : "✗ AGGRESSIVE BULLISH CANDLES (NO SELLERS)"}
         </text>
 
-        {/* Key Strategy Level */}
         <line
           x1="24"
           y1={isBuyExample ? "132" : "66"}
@@ -421,7 +497,6 @@ function GlobalChecklistSvg({
 
         {isBuyExample ? (
           <>
-            {/* 3 Huge Full-Bodied Bearish Marubozu Candles Slamming Into Level */}
             {[
               { x: 74, top: 44, h: 28 },
               { x: 122, top: 70, h: 32 },
@@ -446,6 +521,15 @@ function GlobalChecklistSvg({
                 />
               </g>
             ))}
+            {/* Steep Downward Opposing Momentum Arrow */}
+            <polyline
+              points="64,40 218,142"
+              fill="none"
+              stroke="#fb7185"
+              strokeWidth="2.3"
+              strokeLinecap="round"
+              markerEnd={`url(#${uid}-g-rose)`}
+            />
             <text
               x="24"
               y="154"
@@ -453,7 +537,7 @@ function GlobalChecklistSvg({
               fontSize="9.5"
               fontFamily="monospace"
             >
-              Heavy Marubozu Closes · Zero Buyer Wicks
+              Heavy Marubozu Closes + Steep Sell Arrow
             </text>
             <text
               x="24"
@@ -467,7 +551,6 @@ function GlobalChecklistSvg({
           </>
         ) : (
           <>
-            {/* 3 Huge Full-Bodied Bullish Candles Slamming Into Short Level */}
             {[
               { x: 74, top: 112, h: 28 },
               { x: 122, top: 84, h: 30 },
@@ -492,6 +575,15 @@ function GlobalChecklistSvg({
                 />
               </g>
             ))}
+            {/* Steep Upward Opposing Momentum Arrow */}
+            <polyline
+              points="64,142 218,46"
+              fill="none"
+              stroke="#34d399"
+              strokeWidth="2.3"
+              strokeLinecap="round"
+              markerEnd={`url(#${uid}-g-emerald)`}
+            />
             <text
               x="24"
               y="154"
@@ -499,7 +591,7 @@ function GlobalChecklistSvg({
               fontSize="9.5"
               fontFamily="monospace"
             >
-              Heavy Impulse Closes · Zero Seller Wicks
+              Heavy Impulse Closes + Steep Buy Arrow
             </text>
             <text
               x="24"
@@ -513,7 +605,7 @@ function GlobalChecklistSvg({
           </>
         )}
 
-        {/* Right Panel: Momentum Exhaustion + Candlestick Confirmation */}
+        {/* Right Panel: Momentum Exhaustion + Candlestick Confirmation + Reversal Arrow */}
         <rect
           x="350"
           y="10"
@@ -547,7 +639,6 @@ function GlobalChecklistSvg({
 
         {isBuyExample ? (
           <>
-            {/* Shrinking Bearish Body -> Long Lower Rejection Wick -> Bullish Engulfing */}
             <g>
               <line
                 x1="418"
@@ -559,7 +650,6 @@ function GlobalChecklistSvg({
               />
               <rect x="410" y="80" width="16" height="22" rx="2" fill="#f43f5e" />
             </g>
-            {/* Pin-bar / Wick Rejection at Level */}
             <g>
               <line
                 x1="464"
@@ -571,7 +661,6 @@ function GlobalChecklistSvg({
               />
               <rect x="456" y="103" width="16" height="10" rx="2" fill="#f43f5e" />
             </g>
-            {/* Strong Bullish Engulfing Confirmation */}
             <g>
               <line
                 x1="512"
@@ -583,6 +672,16 @@ function GlobalChecklistSvg({
               />
               <rect x="503" y="86" width="18" height="28" rx="2" fill="#10b981" />
             </g>
+            {/* Reversal Trajectory Arrow off Rejection + Engulfing */}
+            <polyline
+              points="402,74 464,140 512,86 604,48"
+              fill="none"
+              stroke="#34d399"
+              strokeWidth="2.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              markerEnd={`url(#${uid}-g-emerald)`}
+            />
             <text
               x="364"
               y="154"
@@ -590,7 +689,7 @@ function GlobalChecklistSvg({
               fontSize="9.5"
               fontFamily="monospace"
             >
-              Sellers Exhausted · Buyers Step In Strong
+              Rejection Wick + Engulfing + Bullish Arrow
             </text>
             <text
               x="364"
@@ -604,7 +703,6 @@ function GlobalChecklistSvg({
           </>
         ) : (
           <>
-            {/* Shrinking Bullish Body -> Long Upper Rejection Wick -> Bearish Engulfing */}
             <g>
               <line
                 x1="418"
@@ -616,7 +714,6 @@ function GlobalChecklistSvg({
               />
               <rect x="410" y="96" width="16" height="22" rx="2" fill="#10b981" />
             </g>
-            {/* Upper Wick Rejection at Level */}
             <g>
               <line
                 x1="464"
@@ -628,7 +725,6 @@ function GlobalChecklistSvg({
               />
               <rect x="456" y="84" width="16" height="10" rx="2" fill="#10b981" />
             </g>
-            {/* Strong Bearish Engulfing Confirmation */}
             <g>
               <line
                 x1="512"
@@ -640,6 +736,16 @@ function GlobalChecklistSvg({
               />
               <rect x="503" y="84" width="18" height="28" rx="2" fill="#f43f5e" />
             </g>
+            {/* Reversal Trajectory Arrow off Upper Wick + Bearish Engulfing */}
+            <polyline
+              points="402,124 464,56 512,114 604,142"
+              fill="none"
+              stroke="#fb7185"
+              strokeWidth="2.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              markerEnd={`url(#${uid}-g-rose)`}
+            />
             <text
               x="364"
               y="154"
@@ -647,7 +753,7 @@ function GlobalChecklistSvg({
               fontSize="9.5"
               fontFamily="monospace"
             >
-              Buyers Exhausted · Sellers Step In Strong
+              Upper Wick + Bear Engulfing + Sell Arrow
             </text>
             <text
               x="364"
