@@ -159,6 +159,12 @@ export default function GlobalPriceAlertsPage() {
   const [testingTelegram, setTestingTelegram] = useState(false);
   const [testBotToken, setTestBotToken] = useState("");
   const [testChatId, setTestChatId] = useState("");
+  const [telegramTestFeedback, setTelegramTestFeedback] = useState<{
+    ok: boolean;
+    message: string;
+    hint?: string;
+    autoDiscoveredChatId?: string;
+  } | null>(null);
   const [copiedCronUrl, setCopiedCronUrl] = useState(false);
 
   const alertsRef = useRef<PriceAlert[]>([]);
@@ -669,6 +675,7 @@ export default function GlobalPriceAlertsPage() {
 
   async function handleSendTelegramTest() {
     setTestingTelegram(true);
+    setTelegramTestFeedback(null);
     try {
       const query = !supabaseReady && isPreviewParam ? "?preview=1" : "";
       const res = await fetch(`/api/alerts/test-telegram${query}`, {
@@ -681,20 +688,40 @@ export default function GlobalPriceAlertsPage() {
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) {
+        const errText = data?.error || "Telegram test failed.";
+        setTelegramTestFeedback({
+          ok: false,
+          message: errText,
+          hint: data?.hint,
+        });
         setBannerMessage({
           kind: "error",
-          text: data?.error || "Telegram test failed.",
+          text: `${errText}${data?.hint ? ` — ${data.hint}` : ""}`,
         });
       } else {
+        const successMsg = `✅ Test message delivered${
+          data.botUsername ? ` via ${data.botUsername}` : ""
+        }${data.usedChatId ? ` to Chat ID ${data.usedChatId}` : ""}!`;
+        setTelegramTestFeedback({
+          ok: true,
+          message: successMsg,
+          hint: data?.hint,
+          autoDiscoveredChatId: data?.autoDiscoveredChatId,
+        });
         setBannerMessage({
           kind: "success",
-          text: "✅ Test message delivered to your Telegram chat!",
+          text: successMsg,
         });
       }
     } catch {
+      const netErr = "Network error while testing Telegram Bot.";
+      setTelegramTestFeedback({
+        ok: false,
+        message: netErr,
+      });
       setBannerMessage({
         kind: "error",
-        text: "Network error while testing Telegram Bot.",
+        text: netErr,
       });
     } finally {
       setTestingTelegram(false);
@@ -1267,6 +1294,31 @@ export default function GlobalPriceAlertsPage() {
                   </div>
                 </div>
               </div>
+
+              {telegramTestFeedback && (
+                <div
+                  className={`rounded-xl border p-3.5 text-xs space-y-1.5 ${
+                    telegramTestFeedback.ok
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                      : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+                  }`}
+                >
+                  <p className="font-semibold leading-relaxed">
+                    {telegramTestFeedback.message}
+                  </p>
+                  {telegramTestFeedback.hint && (
+                    <p className="text-[11px] opacity-90 leading-relaxed">
+                      💡 {telegramTestFeedback.hint}
+                    </p>
+                  )}
+                  {telegramTestFeedback.autoDiscoveredChatId && (
+                    <div className="mt-2 rounded-lg border border-emerald-500/30 bg-[#060B09] px-2.5 py-1.5 font-mono text-[11px] text-emerald-300">
+                      TELEGRAM_CHAT_ID=
+                      {telegramTestFeedback.autoDiscoveredChatId}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button
                 type="button"

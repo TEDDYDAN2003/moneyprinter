@@ -6,9 +6,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const { user, supabaseConfigured } = await getAuthenticatedUser();
+  const isLocalHost =
+    request.nextUrl.hostname === "localhost" ||
+    request.nextUrl.hostname === "127.0.0.1";
   const isPreview =
     !supabaseConfigured &&
-    (Boolean(user) || request.nextUrl.searchParams.get("preview") === "1");
+    (Boolean(user) ||
+      request.nextUrl.searchParams.get("preview") === "1" ||
+      isLocalHost);
 
   if (!user && !isPreview) {
     return NextResponse.json(
@@ -29,11 +34,21 @@ export async function POST(request: NextRequest) {
 
   const result = await sendTelegramTestNotification({ botToken, chatId });
   if (!result.sent) {
-    return NextResponse.json(
-      { ok: false, error: result.error ?? "Failed to send Telegram message." },
-      { status: 400 }
-    );
+    // Return 200 with ok:false + structured Telegram diagnostics so the client
+    // displays the exact cause inline without noisy console 400 errors.
+    return NextResponse.json({
+      ok: false,
+      error: result.error ?? "Failed to send Telegram message.",
+      hint: result.hint,
+      botUsername: result.botUsername,
+    });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    botUsername: result.botUsername,
+    usedChatId: result.usedChatId,
+    autoDiscoveredChatId: result.autoDiscoveredChatId,
+    hint: result.hint,
+  });
 }

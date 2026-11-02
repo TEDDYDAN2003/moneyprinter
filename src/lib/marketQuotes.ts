@@ -10,6 +10,8 @@
  *       - Yahoo Finance Live Chart Meta (US30 -> ^DJI, NAS100 -> ^NDX, SPX500 -> ^GSPC, Stocks, FX)
  */
 
+import { getServerEnvVar } from "@/lib/serverEnv";
+
 export interface LiveQuoteResult {
   symbol: string;
   normalizedSymbol: string;
@@ -18,15 +20,8 @@ export interface LiveQuoteResult {
   fetchedAt: string;
 }
 
-const PLACEHOLDER_API_KEYS = new Set([
-  "",
-  "your-twelve-data-api-key",
-  "replace-me",
-]);
-
 export function isTwelveDataConfigured(): boolean {
-  const key = (process.env.TWELVE_DATA_API_KEY ?? "").trim();
-  return Boolean(key) && !PLACEHOLDER_API_KEYS.has(key);
+  return Boolean(getServerEnvVar("TWELVE_DATA_API_KEY"));
 }
 
 /**
@@ -370,8 +365,8 @@ export async function fetchLiveMarketQuotes(
   const resolved: Record<string, LiveQuoteResult> = {};
   if (uniqueNormalized.length === 0) return resolved;
 
-  const apiKey = (process.env.TWELVE_DATA_API_KEY ?? "").trim();
-  if (isTwelveDataConfigured()) {
+  const apiKey = getServerEnvVar("TWELVE_DATA_API_KEY");
+  if (apiKey) {
     const tdMap = await fetchTwelveDataBatch(uniqueNormalized, apiKey);
     tdMap.forEach((val, key) => {
       resolved[key] = val;

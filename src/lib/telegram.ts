@@ -1,34 +1,194 @@
 import { formatStrategyLabel } from "@/lib/strategies";
+import { getServerEnvVar } from "@/lib/serverEnv";
 
-const PLACEHOLDER_TOKENS = new Set([
-  "",
+const PLACEHOLDER_TOKENS = [
   "your-telegram-bot-token",
+  "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ",
   "replace-me",
-]);
+];
 
-const PLACEHOLDER_CHATS = new Set([
-  "",
+const PLACEHOLDER_CHATS = [
   "your-telegram-chat-id",
+  "123456789",
   "replace-me",
-]);
+];
+
+/**
+ * Sanitizes a Telegram Bot Token:
+ * - Trims whitespace & accidental quotes
+ * - Strips accidental leading "bot" prefix (e.g. "bot712345:AAF..." -> "712345:AAF...")
+ * - Strips accidental full URL prefix if pasted
+ */
+function normalizeBotToken(raw: string): string {
+  let cleaned = raw.trim().replace(/^["']|["']$/g, "").trim();
+  cleaned = cleaned.replace(/^https?:\/\/api\.telegram\.org\/bot/i, "");
+  cleaned = cleaned.replace(/\/sendMessage.*$/i, "");
+  if (/^bot\d+:/i.test(cleaned)) {
+    cleaned = cleaned.slice(3);
+  }
+  return cleaned.trim();
+}
+
+function normalizeChatId(raw: string): string {
+  return raw.trim().replace(/^["']|["']$/g, "").trim();
+}
 
 export function getTelegramConfig(overrideChatId?: string | null) {
-  const botToken = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
-  const envChatId = (process.env.TELEGRAM_CHAT_ID ?? "").trim();
-  const chatId = (overrideChatId ?? "").trim() || envChatId;
+  const rawToken = getServerEnvVar(
+    [
+      "TELEGRAM_BOT_TOKEN",
+      "NEXT_PUBLIC_TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_TOKEN",
+      "BOT_TOKEN",
+    ],
+    PLACEHOLDER_TOKENS
+  );
 
-  const validToken = Boolean(botToken) && !PLACEHOLDER_TOKENS.has(botToken);
-  const validChat = Boolean(chatId) && !PLACEHOLDER_CHATS.has(chatId);
+  const rawEnvChat = getServerEnvVar(
+    [
+      "TELEGRAM_CHAT_ID",
+      "NEXT_PUBLIC_TELEGRAM_CHAT_ID",
+      "TELEGRAM_USER_ID",
+      "CHAT_ID",
+    ],
+    PLACEHOLDER_CHATS
+  );
+
+  const botToken = normalizeBotToken(rawToken);
+  const chatId = normalizeChatId(overrideChatId || "") || normalizeChatId(rawEnvChat);
+
+  const validToken = Boolean(botToken) && !PLACEHOLDER_TOKENS.includes(botToken);
+  const validChat = Boolean(chatId) && !PLACEHOLDER_CHATS.includes(chatId);
 
   return {
     botToken,
     chatId,
+    validToken,
+    validChat,
     configured: validToken && validChat,
   };
 }
 
 export function isTelegramConfigured(): boolean {
   return getTelegramConfig().configured;
+}
+
+interface TelegramBotIdentity {
+  ok: boolean;
+  id?: number;
+  username?: string;
+  firstName?: string;
+  error?: string;
+}
+
+async function verifyTelegramBotToken(
+  botToken: string
+): Promise<TelegramBotIdentity> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok || !data?.result) {
+      return {
+        ok: false,
+        error:
+          data?.description ||
+          `Invalid TELEGRAM_BOT_TOKEN (HTTP ${res.status} from Telegram /getMe).`,
+      };
+    }
+    return {
+      ok: true,
+      id: data.result.id,
+      username: data.result.username,
+      firstName: data.result.first_name,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? `Could not connect to api.telegram.org: ${err.message}`
+          : "Network error reaching api.telegram.org",
+    };
+  }
+}
+
+/**
+ * Queries `/getUpdates` on the bot to auto-discover the user's numeric `chat.id`
+ * if they have pressed Start / sent `/start` to the bot!
+ */
+async function discoverLatestChatIdFromUpdates(
+  botToken: string
+): Promise<{ chatId: string; chatTitle: string } | null> {
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${botToken}/getUpdates?limit=25`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok || !Array.isArray(data.result)) {
+      return null;
+    }
+
+    for (let i = data.result.length - 1; i >= 0; i--) {
+      const update = data.result[i];
+      const chat =
+        update?.message?.chat ??
+        update?.edited_message?.chat ??
+        update?.channel_post?.chat ??
+        update?.my_chat_member?.chat;
+
+      if (chat && (typeof chat.id === "number" || typeof chat.id === "string")) {
+        const label =
+          chat.username
+            ? `@${chat.username}`
+            : [chat.first_name, chat.last_name].filter(Boolean).join(" ") ||
+              chat.title ||
+              String(chat.id);
+        return {
+          chatId: String(chat.id),
+          chatTitle: label,
+        };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function postTelegramMessage(
+  botToken: string,
+  chatId: string,
+  htmlText: string
+): Promise<{ ok: boolean; description?: string; status?: number }> {
+  const res = await fetch(
+    `https://api.telegram.org/bot${botToken}/sendMessage`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: htmlText,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.ok) {
+    return {
+      ok: false,
+      description: data?.description || `Telegram HTTP ${res.status}`,
+      status: res.status,
+    };
+  }
+  return { ok: true };
 }
 
 function escapeHtml(text: string): string {
@@ -83,14 +243,14 @@ export interface TelegramAlertPayload {
 
 export async function sendTelegramAlertNotification(
   payload: TelegramAlertPayload
-): Promise<{ sent: boolean; error?: string }> {
-  const { botToken, chatId, configured } = getTelegramConfig(
+): Promise<{ sent: boolean; error?: string; resolvedChatId?: string }> {
+  const { botToken, chatId, validToken } = getTelegramConfig(
     payload.chatIdOverride
   );
-  if (!configured) {
+  if (!validToken) {
     return {
       sent: false,
-      error: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured.",
+      error: "TELEGRAM_BOT_TOKEN is not configured.",
     };
   }
 
@@ -98,7 +258,8 @@ export async function sendTelegramAlertNotification(
     ((payload.triggeredPrice - payload.initialPrice) / payload.initialPrice) *
     100;
   const signedPctStr = `${rawChangePct >= 0 ? "+" : ""}${rawChangePct.toFixed(2)}%`;
-  const directionArrow = payload.condition === "above" ? "▲ CROSSED ABOVE" : "▼ CROSSED BELOW";
+  const directionArrow =
+    payload.condition === "above" ? "▲ CROSSED ABOVE" : "▼ CROSSED BELOW";
   const strategyText = payload.strategy
     ? formatStrategyLabel(payload.strategy, false)
     : null;
@@ -128,32 +289,33 @@ export async function sendTelegramAlertNotification(
     }`
   );
 
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${botToken}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: lines.join("\n"),
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-        }),
-      }
-    );
+  const html = lines.join("\n");
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) {
-      return {
-        sent: false,
-        error:
-          data?.description ||
-          `Telegram API returned HTTP ${res.status}`,
-      };
+  try {
+    if (chatId) {
+      const attempt = await postTelegramMessage(botToken, chatId, html);
+      if (attempt.ok) {
+        return { sent: true, resolvedChatId: chatId };
+      }
     }
 
-    return { sent: true };
+    // Fallback: try auto-discovering numeric chat_id via /getUpdates
+    const discovered = await discoverLatestChatIdFromUpdates(botToken);
+    if (discovered) {
+      const retry = await postTelegramMessage(
+        botToken,
+        discovered.chatId,
+        html
+      );
+      if (retry.ok) {
+        return { sent: true, resolvedChatId: discovered.chatId };
+      }
+    }
+
+    return {
+      sent: false,
+      error: "Failed to deliver Telegram message — verify TELEGRAM_CHAT_ID and press Start on your bot.",
+    };
   } catch (err) {
     return {
       sent: false,
@@ -162,67 +324,129 @@ export async function sendTelegramAlertNotification(
   }
 }
 
+export interface TelegramTestResult {
+  sent: boolean;
+  error?: string;
+  botUsername?: string;
+  usedChatId?: string;
+  autoDiscoveredChatId?: string;
+  hint?: string;
+}
+
 export async function sendTelegramTestNotification(options?: {
   botToken?: string;
   chatId?: string;
-}): Promise<{ sent: boolean; error?: string }> {
-  const token = (
-    options?.botToken?.trim() ||
-    process.env.TELEGRAM_BOT_TOKEN ||
-    ""
-  ).trim();
-  const chat = (
-    options?.chatId?.trim() ||
-    process.env.TELEGRAM_CHAT_ID ||
-    ""
-  ).trim();
+}): Promise<TelegramTestResult> {
+  const cfg = getTelegramConfig();
+  const token = normalizeBotToken(options?.botToken || "") || cfg.botToken;
+  const configuredChat =
+    normalizeChatId(options?.chatId || "") || cfg.chatId;
 
-  if (
-    !token ||
-    PLACEHOLDER_TOKENS.has(token) ||
-    !chat ||
-    PLACEHOLDER_CHATS.has(chat)
-  ) {
+  if (!token || PLACEHOLDER_TOKENS.includes(token)) {
     return {
       sent: false,
       error:
-        "Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID. Add them to .env.local (or Vercel) or paste them in the test fields.",
+        "TELEGRAM_BOT_TOKEN was not found (or is still a placeholder). Check .env.local / .env and ensure TELEGRAM_BOT_TOKEN=your_botfather_token is saved.",
     };
   }
+
+  // Step 1: Verify Bot Token with Telegram /getMe
+  const botIdentity = await verifyTelegramBotToken(token);
+  if (!botIdentity.ok) {
+    return {
+      sent: false,
+      error: `Telegram rejected TELEGRAM_BOT_TOKEN: ${botIdentity.error}`,
+      hint: "Open @BotFather in Telegram, run /token, and paste the exact token (e.g. 7123456789:AAF...) without 'bot' in front.",
+    };
+  }
+
+  const botHandle = botIdentity.username
+    ? `@${botIdentity.username}`
+    : botIdentity.firstName || "your bot";
 
   const text = [
     `🟢 <b>MoneyPrinter Telegram Bot Connected!</b>`,
     ``,
-    `Your 24/7 Global Market Price Alert bridge is online.`,
+    `Your 24/7 Global Market Price Alert bridge (${escapeHtml(botHandle)}) is online.`,
     `• <b>Pair Monitor:</b> XAU/USD, Forex, US30, Crypto`,
     `• <b>Scheduler:</b> Ready for cron-job.org -&gt; <code>/api/alerts/check</code>`,
     `• <b>Desk Time:</b> <code>${escapeHtml(formatEatTimestamp())} EAT</code>`,
   ].join("\n");
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chat,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
+  // Guard: Check if user accidentally set TELEGRAM_CHAT_ID equal to the bot's own numeric ID
+  const isChatIdActuallyBotId =
+    configuredChat &&
+    botIdentity.id !== undefined &&
+    configuredChat === String(botIdentity.id);
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) {
+  // Step 2: Try sending to configured TELEGRAM_CHAT_ID first (unless it's the bot's own ID)
+  let firstError = "";
+  if (
+    configuredChat &&
+    !PLACEHOLDER_CHATS.includes(configuredChat) &&
+    !isChatIdActuallyBotId
+  ) {
+    const attempt = await postTelegramMessage(token, configuredChat, text);
+    if (attempt.ok) {
       return {
-        sent: false,
-        error: data?.description || `Telegram API HTTP ${res.status}`,
+        sent: true,
+        botUsername: botHandle,
+        usedChatId: configuredChat,
       };
     }
+    firstError = attempt.description || "Telegram sendMessage failed.";
+  }
 
-    return { sent: true };
-  } catch (err) {
+  // Step 3: Auto-discover user's real numeric chat_id via /getUpdates!
+  const discovered = await discoverLatestChatIdFromUpdates(token);
+  if (discovered) {
+    const retry = await postTelegramMessage(token, discovered.chatId, text);
+    if (retry.ok) {
+      return {
+        sent: true,
+        botUsername: botHandle,
+        usedChatId: discovered.chatId,
+        autoDiscoveredChatId: discovered.chatId,
+        hint:
+          configuredChat !== discovered.chatId
+            ? `Delivered via auto-detected chat (${discovered.chatTitle}). Update TELEGRAM_CHAT_ID=${discovered.chatId} in your .env.local so it matches!`
+            : undefined,
+      };
+    }
+  }
+
+  // Step 4: Provide crystal-clear actionable diagnosis
+  if (isChatIdActuallyBotId) {
     return {
       sent: false,
-      error: err instanceof Error ? err.message : "Failed to reach Telegram API",
+      botUsername: botHandle,
+      error: `TELEGRAM_CHAT_ID (${configuredChat}) is your Bot's own ID — bots cannot message themselves!`,
+      hint: `Open ${botHandle} in Telegram, tap START (send /start), then click 'Send Test Telegram Alert' again — MoneyPrinter will auto-detect your personal Chat ID!`,
     };
   }
+
+  if (configuredChat.startsWith("@")) {
+    return {
+      sent: false,
+      botUsername: botHandle,
+      error: `Telegram rejected TELEGRAM_CHAT_ID="${configuredChat}" (${firstError || "chat not found"}). Personal Telegram DMs require your numeric Chat ID, not your @username.`,
+      hint: `Open ${botHandle} in Telegram, send /start, then click 'Send Test Telegram Alert' again to auto-detect your numeric Chat ID!`,
+    };
+  }
+
+  if (!configuredChat || PLACEHOLDER_CHATS.includes(configuredChat)) {
+    return {
+      sent: false,
+      botUsername: botHandle,
+      error: `Bot token for ${botHandle} is valid, but TELEGRAM_CHAT_ID is missing or still set to placeholder '${configuredChat || "empty"}'.`,
+      hint: `Open ${botHandle} in Telegram, send /start, and click 'Send Test Telegram Alert' again — we will auto-find your Chat ID!`,
+    };
+  }
+
+  return {
+    sent: false,
+    botUsername: botHandle,
+    error: `Telegram API error for Chat ID "${configuredChat}": ${firstError || "chat not found"}`,
+    hint: `Make sure you opened ${botHandle} in Telegram and pressed START (/start) at least once! Bots cannot message you until you message ${botHandle} first.`,
+  };
 }

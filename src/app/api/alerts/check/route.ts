@@ -14,30 +14,26 @@ import {
   isTelegramConfigured,
   sendTelegramAlertNotification,
 } from "@/lib/telegram";
+import { getServerEnvVar } from "@/lib/serverEnv";
 import type { PriceAlert } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
 
-const PLACEHOLDER_SECRETS = new Set([
-  "",
-  "replace-with-a-random-secret-string",
-  "your-cron-secret",
-  "your-supabase-service-role-key",
-]);
-
 function isServiceRoleConfigured(): boolean {
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  return Boolean(key) && !PLACEHOLDER_SECRETS.has(key);
+  return Boolean(getServerEnvVar("SUPABASE_SERVICE_ROLE_KEY"));
 }
 
 function isCronSecretConfigured(): boolean {
-  const secret = (process.env.CRON_SECRET ?? "").trim();
-  return Boolean(secret) && !PLACEHOLDER_SECRETS.has(secret);
+  return Boolean(
+    getServerEnvVar("CRON_SECRET", ["choose-any-strong-secret-here"])
+  );
 }
 
 function hasValidCronSecret(request: NextRequest): boolean {
-  const configuredSecret = (process.env.CRON_SECRET ?? "").trim();
-  if (!configuredSecret || PLACEHOLDER_SECRETS.has(configuredSecret)) {
+  const configuredSecret = getServerEnvVar("CRON_SECRET", [
+    "choose-any-strong-secret-here",
+  ]);
+  if (!configuredSecret) {
     return false;
   }
 
@@ -207,7 +203,7 @@ async function runAlertEvaluation(
   // Mode B: Live Supabase Database Evaluation (24/7 cron-job.org + Refresh)
   // =========================================================================
   const { url: supabaseUrl } = getSupabaseEnv();
-  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  const serviceRoleKey = getServerEnvVar("SUPABASE_SERVICE_ROLE_KEY");
 
   const db = isServiceRoleConfigured()
     ? createSupabaseAdmin(supabaseUrl, serviceRoleKey, {
