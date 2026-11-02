@@ -71,6 +71,7 @@ import {
   STRATEGY_FAMILIES,
 } from "@/lib/strategies";
 import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
+import { JournalPnlCalendar } from "@/components/JournalPnlCalendar";
 import {
   CLOUD_SYNC_COMPLETE_EVENT,
   TRIGGER_CLOUD_SYNC_EVENT,
@@ -131,6 +132,9 @@ export default function JournalPage() {
   const [selectedStrategyFilter, setSelectedStrategyFilter] = useState<
     string | null
   >(null);
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string | null>(
+    null
+  );
 
   // Trade / Backtest Record Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -773,6 +777,15 @@ export default function JournalPage() {
       if (!showAllAccountsInTable && entry.accountType !== activeAccount) {
         return false;
       }
+      if (selectedDateFilter) {
+        const d = new Date(entry.tradedAt);
+        if (!Number.isNaN(d.getTime())) {
+          const entryKey = `${d.getFullYear()}-${String(
+            d.getMonth() + 1
+          ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          if (entryKey !== selectedDateFilter) return false;
+        }
+      }
       if (selectedStrategyFilter) {
         const entryStratKey = entry.strategy || "unspecified";
         if (entryStratKey !== selectedStrategyFilter) return false;
@@ -791,15 +804,29 @@ export default function JournalPage() {
     enrichedAllEntries,
     showAllAccountsInTable,
     activeAccount,
+    selectedDateFilter,
     selectedStrategyFilter,
     filter,
     searchQuery,
   ]);
 
   const filteredTransactions = useMemo(() => {
-    if (showAllAccountsInTable) return transactions;
-    return transactions.filter((t) => t.accountType === activeAccount);
-  }, [transactions, showAllAccountsInTable, activeAccount]);
+    return transactions.filter((t) => {
+      if (!showAllAccountsInTable && t.accountType !== activeAccount) {
+        return false;
+      }
+      if (selectedDateFilter) {
+        const d = new Date(t.transactedAt);
+        if (!Number.isNaN(d.getTime())) {
+          const txKey = `${d.getFullYear()}-${String(
+            d.getMonth() + 1
+          ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          if (txKey !== selectedDateFilter) return false;
+        }
+      }
+      return true;
+    });
+  }, [transactions, showAllAccountsInTable, activeAccount, selectedDateFilter]);
 
   return (
     <div className="space-y-6">
@@ -1209,6 +1236,15 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+
+      {/* DAILY AVG PROFIT / LOSS CALENDAR GRAPH */}
+      <JournalPnlCalendar
+        entries={entries}
+        activeAccount={activeAccount}
+        showAllAccounts={!isBacktestMode && showAllAccountsInTable}
+        selectedDateFilter={selectedDateFilter}
+        onSelectDateFilter={setSelectedDateFilter}
+      />
 
       {/* BACKTESTING WIN PROBABILITY PIE CHARTS PANEL */}
       {isBacktestMode && (
