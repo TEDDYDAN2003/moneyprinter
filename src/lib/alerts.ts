@@ -315,6 +315,7 @@ export async function listPriceAlerts(): Promise<PriceAlert[]> {
   if (!isSupabaseConfigured()) {
     return readLocalAlerts().sort(
       (a, b) =>
+        b.targetPrice - a.targetPrice ||
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
@@ -323,13 +324,20 @@ export async function listPriceAlerts(): Promise<PriceAlert[]> {
   const { data, error } = await supabase
     .from("price_alerts")
     .select("*")
+    .order("target_price", { ascending: false })
     .order("created_at", { ascending: false });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return ((data ?? []) as DbPriceAlertRow[]).map(mapDbRowToAlert);
+  return ((data ?? []) as DbPriceAlertRow[])
+    .map(mapDbRowToAlert)
+    .sort(
+      (a, b) =>
+        b.targetPrice - a.targetPrice ||
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 }
 
 export async function createPriceAlert(

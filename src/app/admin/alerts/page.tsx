@@ -59,6 +59,11 @@ import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type AlertsTab = "pending" | "triggered" | "all" | "setup";
+type AlertSortOrder =
+  | "target_desc"
+  | "target_asc"
+  | "target_pct_desc"
+  | "created_desc";
 
 interface ServerConfigStatus {
   supabaseConfigured: boolean;
@@ -115,6 +120,7 @@ export default function GlobalPriceAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<AlertsTab>("pending");
+  const [sortOrder, setSortOrder] = useState<AlertSortOrder>("target_desc");
 
   // Countdown & scheduler interval state
   const [pollSeconds, setPollSeconds] = useState<number>(DEFAULT_POLL_SECONDS);
@@ -762,10 +768,40 @@ export default function GlobalPriceAlertsPage() {
   }, [alerts, pendingAlerts, triggeredAlerts]);
 
   const displayedAlerts = useMemo(() => {
-    if (activeTab === "pending") return pendingAlerts;
-    if (activeTab === "triggered") return triggeredAlerts;
-    return alerts;
-  }, [activeTab, alerts, pendingAlerts, triggeredAlerts]);
+    const base =
+      activeTab === "pending"
+        ? pendingAlerts
+        : activeTab === "triggered"
+        ? triggeredAlerts
+        : alerts;
+
+    return [...base].sort((a, b) => {
+      if (sortOrder === "target_desc") {
+        return (
+          b.targetPrice - a.targetPrice ||
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      }
+      if (sortOrder === "target_asc") {
+        return (
+          a.targetPrice - b.targetPrice ||
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      }
+      if (sortOrder === "target_pct_desc") {
+        const aPct =
+          a.initialPrice > 0
+            ? Math.abs(((a.targetPrice - a.initialPrice) / a.initialPrice) * 100)
+            : 0;
+        const bPct =
+          b.initialPrice > 0
+            ? Math.abs(((b.targetPrice - b.initialPrice) / b.initialPrice) * 100)
+            : 0;
+        return bPct - aPct || b.targetPrice - a.targetPrice;
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [activeTab, alerts, pendingAlerts, sortOrder, triggeredAlerts]);
 
   const countdownProgressPct =
     pollSeconds > 0
@@ -1066,6 +1102,25 @@ export default function GlobalPriceAlertsPage() {
             <span>Telegram &amp; cron-job.org Setup</span>
           </button>
         </div>
+
+        {activeTab !== "setup" && (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-slate-500">
+              Sort:
+            </span>
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as AlertSortOrder)}
+              aria-label="Sort price alerts"
+              className="rounded-xl border border-slate-800 bg-[#090D13] px-3 py-1.5 font-mono text-xs text-slate-200 focus:border-emerald-500/50 focus:outline-none"
+            >
+              <option value="target_desc">Highest Target (High → Low)</option>
+              <option value="target_asc">Lowest Target (Low → High)</option>
+              <option value="target_pct_desc">Highest Target Move (%)</option>
+              <option value="created_desc">Newest Created</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* =================================================================== */}
