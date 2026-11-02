@@ -16,6 +16,7 @@ import {
   Calendar,
   Camera,
   Clock,
+  CloudUpload,
   Crosshair,
   DollarSign,
   Download,
@@ -70,6 +71,10 @@ import {
   STRATEGY_FAMILIES,
 } from "@/lib/strategies";
 import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
+import {
+  CLOUD_SYNC_COMPLETE_EVENT,
+  TRIGGER_CLOUD_SYNC_EVENT,
+} from "@/components/CloudDataSyncBanner";
 
 type LedgerFilter = "all" | "buy" | "sell" | "win" | "loss" | "open";
 type ActiveSectionTab = "trades" | "cashflow";
@@ -204,6 +209,19 @@ export default function JournalPage() {
 
   useEffect(() => {
     loadAllJournalData();
+  }, [loadAllJournalData]);
+
+  useEffect(() => {
+    function handleCloudSyncComplete() {
+      void loadAllJournalData();
+    }
+    window.addEventListener(CLOUD_SYNC_COMPLETE_EVENT, handleCloudSyncComplete);
+    return () => {
+      window.removeEventListener(
+        CLOUD_SYNC_COMPLETE_EVENT,
+        handleCloudSyncComplete
+      );
+    };
   }, [loadAllJournalData]);
 
   // Separate Balance Summaries for Real, Demo, and Backtesting
@@ -819,6 +837,18 @@ export default function JournalPage() {
 
           {/* Header Action Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent(TRIGGER_CLOUD_SYNC_EVENT))
+              }
+              title="Recover & sync any local browser IndexedDB records and screenshots to Supabase Cloud"
+              className="inline-flex items-center gap-2 rounded-xl border border-sky-500/35 bg-sky-500/10 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-sky-300 transition hover:bg-sky-500/20"
+            >
+              <CloudUpload className="h-4 w-4 text-sky-400" />
+              <span>Sync Local Data</span>
+            </button>
+
             {!isBacktestMode && (
               <>
                 <button

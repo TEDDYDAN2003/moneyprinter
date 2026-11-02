@@ -1,6 +1,7 @@
 import React, { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { CloudDataSyncBanner } from "@/components/CloudDataSyncBanner";
 import { getAuthenticatedUser, type AppUser } from "@/lib/supabase/server";
 
 export default async function AdminLayout({
@@ -36,6 +37,7 @@ export default async function AdminLayout({
 
       <div className="lg:pl-64">
         <main className="mx-auto max-w-6xl px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+          <CloudDataSyncBanner />
           {children}
         </main>
       </div>

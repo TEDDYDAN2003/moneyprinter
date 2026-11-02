@@ -244,7 +244,8 @@ export async function fetchAllChecklistReferences(): Promise<{
   }
 
   if (!rows || rows.length === 0) {
-    return { byStep: {} };
+    const localOnly = await listPreviewReferences().catch(() => ({}));
+    return { byStep: localOnly };
   }
 
   const paths = rows.map((r) => r.storage_path as string);
@@ -279,6 +280,20 @@ export async function fetchAllChecklistReferences(): Promise<{
 
     if (!byStep[item.stepId]) byStep[item.stepId] = [];
     byStep[item.stepId].push(item);
+  }
+
+  // Merge any unsynced local IndexedDB checklist images
+  const localGrouped = await listPreviewReferences().catch(
+    () => ({} as Record<string, ChecklistReferenceImage[]>)
+  );
+  for (const [stepId, localItems] of Object.entries(localGrouped)) {
+    const existingIds = new Set((byStep[stepId] || []).map((i) => i.id));
+    for (const item of localItems) {
+      if (!existingIds.has(item.id)) {
+        if (!byStep[stepId]) byStep[stepId] = [];
+        byStep[stepId].push(item);
+      }
+    }
   }
 
   return { byStep };
@@ -398,3 +413,91 @@ export async function removeChecklistReference(
     throw new Error(dbError.message);
   }
 }
+
+// ============================================================================
+// Local IndexedDB -> Supabase 'pullback-references' Cloud Sync
+// ============================================================================
+
+async function listRawPreviewReferenceRecords(): Promise<StoredPreviewRecord[]> {
+  if (typeof window === "undefined" || !window.indexedDB) return [];
+  const db = await openPreviewDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const store = tx.objectStore(IDB_STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result as StoredPreviewRecord[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function inspectLocalChecklistSyncCount(): Promise<number> {
+  const rows = await listRawPreviewReferenceRecords().catch(() => []);
+  return rows.length;
+}
+
+export async function syncLocalChecklistReferencesToSupabase(): Promise<{
+  syncedImages: number;
+  errors: string[];
+}> {
+  const result = { syncedImages: 0, errors: [] as string[] };
+  if (!isSupabaseConfigured()) return result;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return result;
+
+  const rows = await listRawPreviewReferenceRecords().catch(() => []);
+  for (const row of rows) {
+    const safeName = sanitizeFileName(row.fileName || "reference.png");
+    const mimeType =
+      row.mimeType && ALLOWED_IMAGE_MIME_TYPES.has(row.mimeType)
+        ? row.mimeType
+        : "image/png";
+    const storagePath = `${user.id}/${row.market}/${row.stepId}/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 7)}-${safeName}`;
+
+    const { error: upErr } = await supabase.storage
+      .from(PULLBACK_BUCKET)
+      .upload(storagePath, row.blob, {
+        cacheControl: "3600",
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (upErr) {
+      result.errors.push(`Checklist image ${row.fileName}: ${upErr.message}`);
+      continue;
+    }
+
+    const { error: metaErr } = await supabase
+      .from("pullback_checklist_images")
+      .insert({
+        user_id: user.id,
+        market: row.market,
+        step_id: row.stepId,
+        storage_path: storagePath,
+        file_name: row.fileName || safeName,
+        mime_type: mimeType,
+        file_size_bytes: Math.max(1, row.fileSizeBytes || row.blob.size || 1),
+        created_at: row.createdAt,
+      });
+
+    if (metaErr) {
+      await supabase.storage
+        .from(PULLBACK_BUCKET)
+        .remove([storagePath])
+        .catch(() => {});
+      result.errors.push(`Checklist metadata (${row.fileName}): ${metaErr.message}`);
+      continue;
+    }
+
+    await deletePreviewReference(row.id).catch(() => {});
+    result.syncedImages++;
+  }
+
+  return result;
+}
+

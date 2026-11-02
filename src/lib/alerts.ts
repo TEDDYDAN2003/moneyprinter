@@ -526,3 +526,59 @@ export async function deletePriceAlert(id: string): Promise<void> {
     throw new Error(error.message);
   }
 }
+
+export function inspectLocalAlertsSyncCount(): number {
+  return readLocalAlerts().length;
+}
+
+export async function syncLocalAlertsToSupabase(): Promise<{
+  syncedAlerts: number;
+  errors: string[];
+}> {
+  const result = { syncedAlerts: 0, errors: [] as string[] };
+  if (!isSupabaseConfigured()) return result;
+
+  const localAlerts = readLocalAlerts();
+  if (localAlerts.length === 0) return result;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return result;
+
+  const remaining: PriceAlert[] = [];
+  for (const item of localAlerts) {
+    const { error } = await supabase.from("price_alerts").insert({
+      user_id: user.id,
+      symbol: item.symbol,
+      condition: item.condition,
+      initial_price: item.initialPrice,
+      target_price: item.targetPrice,
+      positive_pct: item.positivePct,
+      negative_pct: item.negativePct,
+      latest_price: item.latestPrice,
+      last_checked_at: item.lastCheckedAt,
+      status: item.status,
+      triggered_price: item.triggeredPrice,
+      triggered_at: item.triggeredAt,
+      telegram_notified: item.telegramNotified,
+      telegram_chat_id: item.telegramChatId || null,
+      strategy: item.strategy || null,
+      notes: item.notes || null,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+    });
+
+    if (error) {
+      result.errors.push(`Alert ${item.symbol}: ${error.message}`);
+      remaining.push(item);
+    } else {
+      result.syncedAlerts++;
+    }
+  }
+
+  writeLocalAlerts(remaining);
+  return result;
+}
+

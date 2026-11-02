@@ -1144,9 +1144,22 @@ export async function fetchJournalEntries(): Promise<{
     throw new Error(error.message);
   }
 
-  return {
-    entries: ((data as SupabaseJournalRow[]) || []).map(mapRowToEntry),
-  };
+  const cloudEntries = ((data as SupabaseJournalRow[]) || []).map(mapRowToEntry);
+  const localEntries = await listLocalEntries().catch(() => []);
+  if (localEntries.length === 0) {
+    return { entries: cloudEntries };
+  }
+
+  const cloudIds = new Set(cloudEntries.map((e) => e.id));
+  const merged = [
+    ...cloudEntries,
+    ...localEntries.filter((e) => !cloudIds.has(e.id)),
+  ].sort(
+    (a, b) =>
+      new Date(b.tradedAt).getTime() - new Date(a.tradedAt).getTime()
+  );
+
+  return { entries: merged };
 }
 
 export async function createJournalEntry(
@@ -1419,9 +1432,22 @@ export async function fetchCashflowTransactions(): Promise<{
     throw new Error(error.message);
   }
 
-  return {
-    transactions: ((data as SupabaseTxRow[]) || []).map(mapRowToTx),
-  };
+  const cloudTx = ((data as SupabaseTxRow[]) || []).map(mapRowToTx);
+  const localTx = await listLocalTransactions().catch(() => []);
+  if (localTx.length === 0) {
+    return { transactions: cloudTx };
+  }
+
+  const cloudIds = new Set(cloudTx.map((t) => t.id));
+  const merged = [
+    ...cloudTx,
+    ...localTx.filter((t) => !cloudIds.has(t.id)),
+  ].sort(
+    (a, b) =>
+      new Date(b.transactedAt).getTime() - new Date(a.transactedAt).getTime()
+  );
+
+  return { transactions: merged };
 }
 
 export async function createCashflowTransaction(
@@ -1585,6 +1611,18 @@ export async function fetchAllJournalScreenshots(): Promise<{
     byEntry[shot.journalEntryId].push(shot);
   }
 
+  // Merge any unsynced local IndexedDB screenshots so nothing is ever hidden
+  const localShotsByEntry = await listLocalScreenshots().catch(() => ({} as Record<string, JournalScreenshot[]>));
+  for (const [entryId, localShots] of Object.entries(localShotsByEntry)) {
+    const existingIds = new Set((byEntry[entryId] || []).map((s) => s.id));
+    for (const s of localShots) {
+      if (!existingIds.has(s.id)) {
+        if (!byEntry[entryId]) byEntry[entryId] = [];
+        byEntry[entryId].push(s);
+      }
+    }
+  }
+
   return { byEntry };
 }
 
@@ -1711,3 +1749,217 @@ export async function deleteJournalScreenshot(
     throw new Error(dbError.message);
   }
 }
+
+// ============================================================================
+// Local IndexedDB -> Supabase Cloud Recovery & Sync Engine
+// ============================================================================
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function ensureValidUuid(candidate: string): string {
+  return UUID_REGEX.test(candidate) ? candidate : makeUuid();
+}
+
+async function listRawLocalScreenshotBlobs(): Promise<LocalStoredScreenshot[]> {
+  if (typeof window === "undefined" || !window.indexedDB) return [];
+  const db = await openJournalIdb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCREENSHOTS, "readonly");
+    const store = tx.objectStore(STORE_SCREENSHOTS);
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result as LocalStoredScreenshot[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export interface LocalJournalSyncInventory {
+  entriesCount: number;
+  transactionsCount: number;
+  screenshotsCount: number;
+  totalCount: number;
+}
+
+export async function inspectLocalJournalSyncState(): Promise<LocalJournalSyncInventory> {
+  if (typeof window === "undefined" || !window.indexedDB) {
+    return {
+      entriesCount: 0,
+      transactionsCount: 0,
+      screenshotsCount: 0,
+      totalCount: 0,
+    };
+  }
+
+  const [entries, transactions, screenshots] = await Promise.all([
+    listLocalEntries().catch(() => []),
+    listLocalTransactions().catch(() => []),
+    listRawLocalScreenshotBlobs().catch(() => []),
+  ]);
+
+  return {
+    entriesCount: entries.length,
+    transactionsCount: transactions.length,
+    screenshotsCount: screenshots.length,
+    totalCount: entries.length + transactions.length + screenshots.length,
+  };
+}
+
+export interface LocalJournalSyncSummary {
+  syncedEntries: number;
+  syncedTransactions: number;
+  syncedScreenshots: number;
+  errors: string[];
+}
+
+export async function syncLocalJournalToSupabase(): Promise<LocalJournalSyncSummary> {
+  const summary: LocalJournalSyncSummary = {
+    syncedEntries: 0,
+    syncedTransactions: 0,
+    syncedScreenshots: 0,
+    errors: [],
+  };
+
+  if (!isSupabaseConfigured()) {
+    summary.errors.push("Supabase environment variables are not configured.");
+    return summary;
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    summary.errors.push("Sign in to your Supabase account to sync local data.");
+    return summary;
+  }
+
+  const [localEntries, localTransactions, localScreenshots] = await Promise.all([
+    listLocalEntries().catch(() => []),
+    listLocalTransactions().catch(() => []),
+    listRawLocalScreenshotBlobs().catch(() => []),
+  ]);
+
+  // Track mapping in case any legacy local entry had a non-UUID id
+  const entryIdMap = new Map<string, string>();
+
+  // 1. Sync Journal Entries (Real, Demo, Backtest)
+  for (const entry of localEntries) {
+    const cloudId = ensureValidUuid(entry.id);
+    entryIdMap.set(entry.id, cloudId);
+
+    const { error } = await supabase.from("journal_entries").upsert(
+      {
+        id: cloudId,
+        user_id: user.id,
+        account_type: entry.accountType || "real",
+        strategy: entry.strategy || null,
+        timeframe: entry.timeframe || null,
+        session_name: entry.sessionName || null,
+        symbol: normalizeSymbol(entry.symbol) || "XAU/USD",
+        trade_type: entry.tradeType,
+        lot_size: entry.lotSize,
+        opening_price: entry.openingPrice,
+        closing_price: entry.closingPrice,
+        stop_loss: entry.stopLoss,
+        take_profit: entry.takeProfit,
+        leverage: Math.max(1, Math.round(entry.leverage || 500)),
+        traded_at: entry.tradedAt || entry.createdAt,
+        notes: entry.notes || null,
+        created_at: entry.createdAt,
+        updated_at: entry.updatedAt || new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+
+    if (error) {
+      summary.errors.push(`Trade ${entry.symbol}: ${error.message}`);
+    } else {
+      await removeLocalEntry(entry.id).catch(() => {});
+      summary.syncedEntries++;
+    }
+  }
+
+  // 2. Sync Cashflow Transactions (Deposits & Withdrawals)
+  for (const tx of localTransactions) {
+    const cloudId = ensureValidUuid(tx.id);
+    const { error } = await supabase.from("journal_transactions").upsert(
+      {
+        id: cloudId,
+        user_id: user.id,
+        account_type: tx.accountType || "real",
+        tx_type: tx.txType,
+        amount: Number(Number(tx.amount).toFixed(2)),
+        note: tx.note || null,
+        transacted_at: tx.transactedAt || tx.createdAt,
+        created_at: tx.createdAt,
+      },
+      { onConflict: "id" }
+    );
+
+    if (error) {
+      summary.errors.push(`Transaction $${tx.amount}: ${error.message}`);
+    } else {
+      await removeLocalTransaction(tx.id).catch(() => {});
+      summary.syncedTransactions++;
+    }
+  }
+
+  // 3. Sync Screenshot Blobs -> 'journal-screenshots' Bucket + Metadata Table
+  for (const shot of localScreenshots) {
+    const targetEntryId =
+      entryIdMap.get(shot.journalEntryId) || ensureValidUuid(shot.journalEntryId);
+    const safeName = sanitizeFileName(shot.fileName || "chart.png");
+    const mimeType =
+      shot.mimeType && ALLOWED_SCREENSHOT_MIME_TYPES.has(shot.mimeType)
+        ? shot.mimeType
+        : "image/png";
+    const storagePath = `${user.id}/${targetEntryId}/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 7)}-${safeName}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from(JOURNAL_SCREENSHOTS_BUCKET)
+      .upload(storagePath, shot.blob, {
+        cacheControl: "3600",
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      summary.errors.push(`Screenshot ${shot.fileName}: ${uploadErr.message}`);
+      continue;
+    }
+
+    const { error: metaErr } = await supabase
+      .from("journal_entry_screenshots")
+      .insert({
+        id: ensureValidUuid(shot.id),
+        user_id: user.id,
+        journal_entry_id: targetEntryId,
+        storage_path: storagePath,
+        file_name: shot.fileName || safeName,
+        mime_type: mimeType,
+        file_size_bytes: Math.max(1, shot.fileSizeBytes || shot.blob.size || 1),
+        caption: shot.caption || null,
+        created_at: shot.createdAt,
+      });
+
+    if (metaErr) {
+      await supabase.storage
+        .from(JOURNAL_SCREENSHOTS_BUCKET)
+        .remove([storagePath])
+        .catch(() => {});
+      summary.errors.push(
+        `Screenshot metadata (${shot.fileName}): ${metaErr.message}`
+      );
+      continue;
+    }
+
+    await removeLocalScreenshot(shot.id).catch(() => {});
+    summary.syncedScreenshots++;
+  }
+
+  return summary;
+}
+
