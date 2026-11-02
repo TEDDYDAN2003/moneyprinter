@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  BellRing,
   BookOpen,
   CheckSquare,
   ChevronRight,
@@ -270,6 +271,31 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
               </span>
               <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400 border border-emerald-500/20">
                 EAT
+              </span>
+            </Link>
+
+            {/* Price Alerts */}
+            <Link
+              href={withSessionQuery("/admin/alerts")}
+              onClick={() => setMobileOpen(false)}
+              className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                pathname.startsWith("/admin/alerts")
+                  ? "bg-emerald-500/12 text-emerald-300 border border-emerald-500/25 shadow-[inset_0_1px_0_rgba(16,185,129,0.12)]"
+                  : "text-slate-300 hover:bg-slate-800/60 hover:text-white border border-transparent"
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <BellRing
+                  className={`h-4 w-4 ${
+                    pathname.startsWith("/admin/alerts")
+                      ? "text-emerald-400"
+                      : "text-slate-400 group-hover:text-slate-200"
+                  }`}
+                />
+                <span>Alerts</span>
+              </span>
+              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400 border border-emerald-500/20">
+                24/7
               </span>
             </Link>
           </nav>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowRight,
   BarChart3,
+  BellRing,
   BookOpen,
   CheckCircle2,
   CheckSquare,
@@ -218,6 +219,38 @@ export default async function AdminOverviewPage({
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>
+
+        {/* Global Market Price Alerts Card */}
+        <Link
+          href={`/admin/alerts${suffix}`}
+          className="group relative flex flex-col justify-between rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6 transition hover:border-emerald-500/40 hover:bg-[#111823]"
+        >
+          <div>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
+                <BellRing className="h-5 w-5" />
+              </div>
+              <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+                Sidebar → Alerts
+              </span>
+            </div>
+
+            <h2 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors">
+              24/7 Global Price Alerts (Telegram)
+            </h2>
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+              Monitor XAU/USD, Forex, US30 &amp; Crypto via{" "}
+              <code className="text-slate-300">cron-job.org</code> + Telegram
+              Bot with Positive (+%) &amp; Negative (-%) move tracking against
+              your baseline price.
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between border-t border-slate-800/80 pt-4 text-xs font-medium text-emerald-400">
+            <span>Open Price Alerts</span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </div>
+        </Link>
       </div>
 
       {/* Supabase Auth & Project Wiring Status */}
@@ -266,6 +299,10 @@ export default async function AdminOverviewPage({
             {
               file: "supabase/migrations/*_cashflow_and_screenshots.sql",
               desc: "Deposits/withdrawals float ledger + 10 MB 'journal-screenshots' bucket",
+            },
+            {
+              file: "supabase/migrations/*_price_alerts.sql",
+              desc: "24/7 price_alerts table (+% / -% bands) + /api/alerts/check cron + Telegram Bot",
             },
           ].map((item) => (
             <div
