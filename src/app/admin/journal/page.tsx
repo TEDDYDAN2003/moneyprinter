@@ -18,6 +18,7 @@ import {
   Clock,
   CloudUpload,
   Crosshair,
+  Copy,
   DollarSign,
   Download,
   Edit3,
@@ -108,6 +109,30 @@ function formatDisplayDateTime(iso: string): { date: string; time: string } {
       hour12: true,
     }).format(parsed),
   };
+}
+
+function RecordId({ id, label = "Record ID" }: { id: string; label?: string }) {
+  const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
+  const copyId = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(id);
+      setStatus("copied");
+    } catch {
+      setStatus("error");
+    }
+  };
+  return (
+    <div className="inline-flex flex-col items-start gap-1">
+      <span className="font-mono text-xs text-slate-200" aria-label={`${label}: ${id}`}>
+        {id.slice(0, 8)}…
+      </span>
+      <button type="button" onClick={copyId} aria-label={`Copy full ${label}`} className="inline-flex items-center gap-1 rounded border border-slate-700 px-1.5 py-1 text-[10px] text-cyan-300 hover:border-cyan-500 hover:text-cyan-200">
+        <Copy className="h-3 w-3" /> {status === "copied" ? "Copied" : "Copy ID"}
+      </button>
+      {status === "error" && <span role="alert" className="text-[10px] text-rose-400">Copy failed; check clipboard permission.</span>}
+    </div>
+  );
 }
 
 export default function JournalPage() {
@@ -1402,6 +1427,7 @@ export default function JournalPage() {
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-slate-800/80 bg-[#090D13] font-mono text-[11px] uppercase tracking-wider text-slate-400">
+                  <th className="px-4 py-3 font-medium whitespace-nowrap">ID</th>
                   <th className="px-4 py-3 font-medium whitespace-nowrap">
                     Date &amp; Time
                   </th>
@@ -1442,7 +1468,7 @@ export default function JournalPage() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={11}
+                      colSpan={12}
                       className="px-6 py-12 text-center font-mono text-xs text-slate-400"
                     >
                       Loading records...
@@ -1450,7 +1476,7 @@ export default function JournalPage() {
                   </tr>
                 ) : filteredEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-6 py-14 text-center">
+                    <td colSpan={12} className="px-6 py-14 text-center">
                       <div className="mx-auto max-w-md space-y-3">
                         <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400">
                           {isBacktestMode ? (
@@ -1511,6 +1537,10 @@ export default function JournalPage() {
                         onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/journal-record"); if (id) dropOnParent(id, entry); }}
                         className="transition-colors hover:bg-[#111722]"
                       >
+                        {/* Full record UUID is available via Copy ID. */}
+                        <td className="px-4 py-3.5 align-top whitespace-nowrap">
+                          <RecordId id={entry.id} />
+                        </td>
                         {/* Date & Time */}
                         <td className="px-4 py-3.5 align-top whitespace-nowrap">
                           <p className="font-mono text-xs font-medium text-slate-200">
@@ -1559,9 +1589,12 @@ export default function JournalPage() {
                             </p>
                           )}
                           {entries.filter(child => child.parentEntryId === entry.id).map(child => (
-                            <div key={child.id} className="mt-1 flex items-center gap-1">
+                            <div key={child.id} className="mt-2 rounded-lg border border-slate-800 p-2">
+                              <div className="flex items-center gap-1">
                               <button type="button" draggable onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/journal-child", child.id); }} onClick={() => openEditModal(child)} title="Open child (read only); drag to detach zone" className="rounded border border-cyan-700 px-2 py-1 text-[10px] text-cyan-200">↗ {formatStrategyLabel(child.strategy || "unspecified", true)}</button>
                               <button type="button" disabled={groupBusy} onClick={() => void changeGroup(child, null)} className="text-[10px] text-amber-300 underline">Detach</button>
+                              </div>
+                              <div className="mt-1"><span className="mr-2 text-[10px] text-slate-500">Child ID</span><RecordId id={child.id} label="child record ID" /></div>
                             </div>
                           ))}
                           {entry.sessionName && (
