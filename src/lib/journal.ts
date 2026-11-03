@@ -43,6 +43,7 @@ export interface JournalEntry {
   createdAt: string;
   updatedAt: string;
   isLocalPreview?: boolean;
+  parentEntryId?: string | null;
 }
 
 export interface JournalEntryInput {
@@ -563,7 +564,7 @@ export function computeAccountBalanceSummary(
   let openUsedMargin = 0;
 
   for (const entry of entries) {
-    if (entry.accountType !== scope) continue;
+    if (entry.accountType !== scope || entry.parentEntryId) continue;
     const m = computeTradeMetrics(entry);
     if (m.outcome === "open") {
       openUsedMargin += m.usedMarginUsd;
@@ -617,6 +618,7 @@ export function computeStrategyProbabilityStats(
   >();
 
   for (const entry of entries) {
+    if (entry.parentEntryId) continue;
     const def = getStrategyById(entry.strategy);
     let bucketKey: string;
     let label: string;
@@ -881,6 +883,7 @@ async function listLocalEntries(): Promise<JournalEntry[]> {
             createdAt: r.createdAt || new Date().toISOString(),
             updatedAt: r.updatedAt || new Date().toISOString(),
             isLocalPreview: true,
+            parentEntryId: r.parentEntryId ?? null,
           })
         )
         .sort((a, b) => b.tradedAt.localeCompare(a.tradedAt));
@@ -1066,6 +1069,7 @@ async function removeLocalScreenshot(id: string): Promise<void> {
 interface SupabaseJournalRow {
   id: string;
   user_id: string;
+  parent_entry_id?: string | null;
   account_type?: string;
   strategy?: string | null;
   timeframe?: string | null;
@@ -1087,6 +1091,7 @@ interface SupabaseJournalRow {
 function mapRowToEntry(row: SupabaseJournalRow): JournalEntry {
   return {
     id: row.id,
+    parentEntryId: row.parent_entry_id ?? null,
     accountType: parseAccountType(row.account_type),
     strategy: row.strategy ?? null,
     timeframe: row.timeframe ?? null,
@@ -1278,6 +1283,7 @@ export async function updateJournalEntry(
     const prev = existing.find((e) => e.id === id);
     const updated: JournalEntry = {
       id,
+      parentEntryId: prev?.parentEntryId ?? null,
       accountType: input.accountType,
       strategy: input.strategy?.trim() || null,
       timeframe: input.timeframe?.trim() || null,
@@ -1330,6 +1336,26 @@ export async function updateJournalEntry(
   return mapRowToEntry(data as SupabaseJournalRow);
 }
 
+/** Link or detach a record without changing its original trade data. */
+export async function setJournalParent(child: JournalEntry, parent: JournalEntry | null, entries: JournalEntry[]): Promise<JournalEntry> {
+  if (parent) {
+    if (child.id === parent.id || child.parentEntryId || parent.parentEntryId || parent.closingPrice === null ||
+        child.accountType !== parent.accountType || normalizeSymbol(child.symbol) !== normalizeSymbol(parent.symbol))
+      throw new Error("Choose an independent, closed parent with the same instrument and account.");
+    if (entries.some(e => e.parentEntryId === child.id)) throw new Error("Detach this record's children first.");
+    if (!!child.isLocalPreview !== !!parent.isLocalPreview) throw new Error("Both records must be stored in the same place. Sync local records first.");
+  }
+  if (child.isLocalPreview || !isSupabaseConfigured()) {
+    return saveLocalEntry({ ...child, parentEntryId: parent?.id ?? null, updatedAt: new Date().toISOString() });
+  }
+  const supabase = createClient();
+  const { data, error } = await supabase.from("journal_entries")
+    .update({ parent_entry_id: parent?.id ?? null, updated_at: new Date().toISOString() })
+    .eq("id", child.id).select("*").single();
+  if (error) throw new Error(error.message);
+  return mapRowToEntry(data as SupabaseJournalRow);
+}
+
 export async function deleteJournalEntry(
   entry: Pick<JournalEntry, "id" | "isLocalPreview">,
   associatedScreenshots: JournalScreenshot[] = []
@@ -1350,10 +1376,8 @@ export async function deleteJournalEntry(
     .filter((s) => !s.isLocalPreview && s.storagePath)
     .map((s) => s.storagePath);
 
-  if (remotePaths.length > 0) {
-    await supabase.storage.from(JOURNAL_SCREENSHOTS_BUCKET).remove(remotePaths);
-  }
-
+  // Delete the row first: the database may reject deletion of a parent with
+  // children. Never delete its screenshots before that check succeeds.
   const { error } = await supabase
     .from("journal_entries")
     .delete()
@@ -1361,6 +1385,9 @@ export async function deleteJournalEntry(
 
   if (error) {
     throw new Error(error.message);
+  }
+  if (remotePaths.length > 0) {
+    await supabase.storage.from(JOURNAL_SCREENSHOTS_BUCKET).remove(remotePaths);
   }
 }
 
@@ -1843,8 +1870,24 @@ export async function syncLocalJournalToSupabase(): Promise<LocalJournalSyncSumm
   // Track mapping in case any legacy local entry had a non-UUID id
   const entryIdMap = new Map<string, string>();
 
-  // 1. Sync Journal Entries (Real, Demo, Backtest)
-  for (const entry of localEntries) {
+  // Upload parents first, then children, preserving the relationship. If a
+  // parent fails, leave its children and screenshots local for the next sync.
+  const failedEntryIds = new Set<string>();
+  const localIds = new Set(localEntries.map(e => e.id));
+  const orderedEntries = [...localEntries].sort((a, b) => Number(!!a.parentEntryId) - Number(!!b.parentEntryId));
+  for (const entry of orderedEntries) {
+    if (!UUID_REGEX.test(entry.id) && localEntries.some(e => e.parentEntryId === entry.id)) {
+      summary.errors.push(`Trade ${entry.symbol}: detach legacy non-UUID groups before syncing.`);
+      failedEntryIds.add(entry.id); continue;
+    }
+    if (entry.parentEntryId && !UUID_REGEX.test(entry.parentEntryId)) {
+      summary.errors.push(`Trade ${entry.symbol}: detach legacy non-UUID groups before syncing.`);
+      failedEntryIds.add(entry.id); continue;
+    }
+    if (entry.parentEntryId && localIds.has(entry.parentEntryId) && failedEntryIds.has(entry.parentEntryId)) {
+      summary.errors.push(`Trade ${entry.symbol}: parent did not sync; child retained locally.`);
+      failedEntryIds.add(entry.id); continue;
+    }
     const cloudId = ensureValidUuid(entry.id);
     entryIdMap.set(entry.id, cloudId);
 
@@ -1852,6 +1895,7 @@ export async function syncLocalJournalToSupabase(): Promise<LocalJournalSyncSumm
       {
         id: cloudId,
         user_id: user.id,
+        parent_entry_id: entry.parentEntryId ?? null,
         account_type: entry.accountType || "real",
         strategy: entry.strategy || null,
         timeframe: entry.timeframe || null,
@@ -1873,6 +1917,7 @@ export async function syncLocalJournalToSupabase(): Promise<LocalJournalSyncSumm
     );
 
     if (error) {
+      failedEntryIds.add(entry.id);
       summary.errors.push(`Trade ${entry.symbol}: ${error.message}`);
     } else {
       await removeLocalEntry(entry.id).catch(() => {});
@@ -1907,6 +1952,7 @@ export async function syncLocalJournalToSupabase(): Promise<LocalJournalSyncSumm
 
   // 3. Sync Screenshot Blobs -> 'journal-screenshots' Bucket + Metadata Table
   for (const shot of localScreenshots) {
+    if (failedEntryIds.has(shot.journalEntryId)) continue;
     const targetEntryId =
       entryIdMap.get(shot.journalEntryId) || ensureValidUuid(shot.journalEntryId);
     const safeName = sanitizeFileName(shot.fileName || "chart.png");

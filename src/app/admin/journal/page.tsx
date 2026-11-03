@@ -60,6 +60,7 @@ import {
   POPULAR_SYMBOLS,
   TradeType,
   updateJournalEntry,
+  setJournalParent,
   uploadJournalScreenshot,
   validateJournalScreenshot,
 } from "@/lib/journal";
@@ -139,6 +140,8 @@ export default function JournalPage() {
   // Trade / Backtest Record Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
+  const [readOnlyChild, setReadOnlyChild] = useState(false);
+  const [groupBusy, setGroupBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -245,7 +248,7 @@ export default function JournalPage() {
   );
 
   const backtestEntries = useMemo(
-    () => entries.filter((e) => e.accountType === "backtest"),
+    () => entries.filter((e) => e.accountType === "backtest" && !e.parentEntryId),
     [entries]
   );
 
@@ -262,6 +265,7 @@ export default function JournalPage() {
   const openCreateModal = (overrideAccount?: AccountType) => {
     const targetMode = overrideAccount ?? activeAccount;
     setEditingEntry(null);
+    setReadOnlyChild(false);
     setFormError(null);
     setFormAccountType(targetMode);
     setStrategyId(
@@ -286,6 +290,7 @@ export default function JournalPage() {
   };
 
   const openEditModal = (entry: JournalEntry) => {
+    setReadOnlyChild(!!entry.parentEntryId);
     setEditingEntry(entry);
     setFormError(null);
     setFormAccountType(entry.accountType);
@@ -423,6 +428,7 @@ export default function JournalPage() {
   // --- Submit Trade / Backtest Record (+ Upload Staged Screenshots) ---
   const handleSubmitTrade = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (readOnlyChild) return;
     setFormError(null);
 
     const parsedLots = parseFloat(lotSize);
@@ -492,6 +498,12 @@ export default function JournalPage() {
       notes,
     };
 
+    if (editingEntry && entries.some(e => e.parentEntryId === editingEntry.id) &&
+        (payload.closingPrice === null || payload.accountType !== editingEntry.accountType ||
+         normalizeSymbol(payload.symbol) !== normalizeSymbol(editingEntry.symbol))) {
+      setFormError("Detach children before reopening this record or changing its instrument or account.");
+      return;
+    }
     try {
       setSubmitting(true);
       let savedRecord: JournalEntry;
@@ -593,6 +605,7 @@ export default function JournalPage() {
 
   // --- Delete Trade Record ---
   const handleDeleteEntry = async (entry: JournalEntry) => {
+    if (entries.some(e => e.parentEntryId === entry.id)) { setPageError("Detach children before deleting their parent."); setConfirmDeleteId(null); return; }
     try {
       const associated = screenshotsByEntry[entry.id] || [];
       await deleteJournalEntry(entry, associated);
@@ -684,9 +697,28 @@ export default function JournalPage() {
     }
   };
 
+  const changeGroup = async (child: JournalEntry, parent: JournalEntry | null) => {
+    if (groupBusy) return;
+    try {
+      setGroupBusy(true); setPageError(null);
+      const saved = await setJournalParent(child, parent, entries);
+      setEntries(prev => prev.map(e => e.id === saved.id ? saved : e));
+    } catch (err) { setPageError(err instanceof Error ? err.message : "Could not update the group."); }
+    finally { setGroupBusy(false); }
+  };
+  const dropOnParent = (sourceId: string, target: JournalEntry) => {
+    const source = entries.find(e => e.id === sourceId);
+    if (!source || source.id === target.id) return;
+    // Whichever record is closed may be the parent. When both are closed,
+    // the drop target is the parent.
+    if (target.closingPrice !== null) void changeGroup(source, target);
+    else if (source.closingPrice !== null) void changeGroup(target, source);
+    else setPageError("One record must be closed before merging.");
+  };
+
   // --- Scoped Performance KPIs ---
   const enrichedAllEntries = useMemo(() => {
-    return entries.map((entry) => ({
+    return entries.filter(entry => !entry.parentEntryId).map((entry) => ({
       entry,
       metrics: computeTradeMetrics(entry),
     }));
@@ -1237,9 +1269,13 @@ export default function JournalPage() {
         </div>
       )}
 
+      <div className="mb-4 rounded-xl border border-cyan-900 bg-cyan-950/20 p-3 text-xs text-cyan-100">
+        Drag one record onto another to merge: the closed record is the parent (if both are closed, the drop target is the parent). Same instrument and account required. Use the dropdown for touch or keyboard. Only the parent counts in results. Children retain their original details and return to those details when detached.
+        <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/journal-child"); const child = entries.find(x => x.id === id && x.parentEntryId); if (child) void changeGroup(child, null); }} className="mt-2 rounded-lg border border-dashed border-cyan-700 px-3 py-2 text-cyan-300">Drop a child tab here to detach it (or use its Detach button).</div>
+      </div>
       {/* DAILY AVG PROFIT / LOSS CALENDAR GRAPH */}
       <JournalPnlCalendar
-        entries={entries}
+        entries={entries.filter(e => !e.parentEntryId)}
         activeAccount={activeAccount}
         showAllAccounts={!isBacktestMode && showAllAccountsInTable}
         selectedDateFilter={selectedDateFilter}
@@ -1471,6 +1507,8 @@ export default function JournalPage() {
                     return (
                       <tr
                         key={entry.id}
+                        onDragOver={e => { if (e.dataTransfer.types.includes("text/journal-record")) e.preventDefault(); }}
+                        onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/journal-record"); if (id) dropOnParent(id, entry); }}
                         className="transition-colors hover:bg-[#111722]"
                       >
                         {/* Date & Time */}
@@ -1520,6 +1558,12 @@ export default function JournalPage() {
                               {formatStrategyLabel(entry.strategy, true)}
                             </p>
                           )}
+                          {entries.filter(child => child.parentEntryId === entry.id).map(child => (
+                            <div key={child.id} className="mt-1 flex items-center gap-1">
+                              <button type="button" draggable onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData("text/journal-child", child.id); }} onClick={() => openEditModal(child)} title="Open child (read only); drag to detach zone" className="rounded border border-cyan-700 px-2 py-1 text-[10px] text-cyan-200">↗ {formatStrategyLabel(child.strategy || "unspecified", true)}</button>
+                              <button type="button" disabled={groupBusy} onClick={() => void changeGroup(child, null)} className="text-[10px] text-amber-300 underline">Detach</button>
+                            </div>
+                          ))}
                           {entry.sessionName && (
                             <p className="font-mono text-[10px] text-slate-500">
                               {entry.sessionName}
@@ -1699,6 +1743,11 @@ export default function JournalPage() {
                             </div>
                           ) : (
                             <div className="inline-flex items-center gap-1">
+                              <span draggable onDragStart={e => { e.dataTransfer.setData("text/journal-record", entry.id); }} title="Drag onto another record to merge" className="cursor-grab rounded border border-slate-700 px-2 py-1 text-xs text-slate-300">⋮⋮</span>
+                              <select aria-label={`Merge ${entry.symbol} into a closed parent`} value="" disabled={groupBusy} onChange={e => { const parent = entries.find(x => x.id === e.target.value); if (parent) void changeGroup(entry, parent); }} className="max-w-[105px] rounded border border-slate-700 bg-slate-900 p-1 text-[10px] text-slate-300">
+                                <option value="">Merge into…</option>
+                                {entries.filter(p => p.id !== entry.id && !p.parentEntryId && p.closingPrice !== null && p.accountType === entry.accountType && normalizeSymbol(p.symbol) === normalizeSymbol(entry.symbol) && !!p.isLocalPreview === !!entry.isLocalPreview).map(p => <option key={p.id} value={p.id}>{formatDisplayDateTime(p.tradedAt).date} · {formatStrategyLabel(p.strategy || "unspecified", true)}</option>)}
+                              </select>
                               <button
                                 type="button"
                                 onClick={() => openEditModal(entry)}
@@ -1910,7 +1959,7 @@ export default function JournalPage() {
                   id="journal-modal-title"
                   className="text-lg font-bold text-white"
                 >
-                  {editingEntry
+                  {readOnlyChild ? "Child record — read only" : editingEntry
                     ? formAccountType === "backtest"
                       ? "Edit Backtested Setup"
                       : "Edit Journal Record"
@@ -1938,6 +1987,8 @@ export default function JournalPage() {
               onSubmit={handleSubmitTrade}
               className="max-h-[calc(90vh-76px)] overflow-y-auto p-6 space-y-5"
             >
+              {readOnlyChild && <p className="rounded-lg border border-cyan-800 p-3 text-xs text-cyan-200">Original child details are preserved and cannot be edited while merged. Detach the child to restore and edit it.</p>}
+              <fieldset disabled={readOnlyChild} className="space-y-5">
               {formError && (
                 <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-200">
                   <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
@@ -2531,6 +2582,7 @@ export default function JournalPage() {
                 </div>
               </div>
 
+              </fieldset>
               {/* Modal Footer */}
               <div className="flex items-center justify-end gap-3 border-t border-slate-800/80 pt-4">
                 <button
@@ -2541,7 +2593,7 @@ export default function JournalPage() {
                 >
                   Cancel
                 </button>
-                <button
+                {!readOnlyChild && <button
                   type="submit"
                   disabled={submitting}
                   className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-bold text-slate-950 transition disabled:opacity-60 ${
@@ -2560,7 +2612,7 @@ export default function JournalPage() {
                       ? "Save Backtest Setup"
                       : "Save Record"}
                   </span>
-                </button>
+                </button>}
               </div>
             </form>
           </div>

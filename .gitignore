@@ -33,6 +33,7 @@ next-env.d.ts
 
 # sandbox / home environment files
 /uploads
+/video_review_frames
 /.npm
 /.config
 /.cache
