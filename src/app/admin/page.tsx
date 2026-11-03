@@ -4,11 +4,9 @@ import {
   BarChart3,
   BellRing,
   BookOpen,
-  CheckCircle2,
   CheckSquare,
   Clock,
   Crosshair,
-  Database,
   KeyRound,
   ShieldCheck,
 } from "lucide-react";
@@ -251,90 +249,6 @@ export default async function AdminOverviewPage({
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </div>
         </Link>
-      </div>
-
-      {/* Supabase Auth & Project Wiring Status */}
-      <div className="rounded-2xl border border-slate-800/90 bg-[#0E131B] p-6">
-        <div className="flex items-center gap-2.5">
-          <Database className="h-5 w-5 text-emerald-400" />
-          <h3 className="text-base font-semibold text-white">
-            Supabase Auth Layer Architecture
-          </h3>
-        </div>
-        <p className="mt-1 text-xs text-slate-400">
-          All Next.js App Router authentication files are wired and ready for
-          your Supabase project credentials.
-        </p>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            {
-              file: "src/lib/supabase/client.ts",
-              desc: "Browser Supabase client (@supabase/ssr)",
-            },
-            {
-              file: "src/lib/supabase/server.ts",
-              desc: "Server Component & Route Handler client",
-            },
-            {
-              file: "src/middleware.ts",
-              desc: "Session refresh & /admin route protection",
-            },
-            {
-              file: "src/app/api/auth/*",
-              desc: "Login, Signup, and Logout endpoints",
-            },
-            {
-              file: "src/app/auth/callback/route.ts",
-              desc: "PKCE auth code exchange handler",
-            },
-            {
-              file: "supabase/migrations/*_storage.sql",
-              desc: "10 MB private 'pullback-references' bucket & RLS policies",
-            },
-            {
-              file: "supabase/migrations/*_trading_journal.sql",
-              desc: "Journal entries table & user-scoped RLS policies",
-            },
-            {
-              file: "supabase/migrations/*_cashflow_and_screenshots.sql",
-              desc: "Deposits/withdrawals float ledger + 10 MB 'journal-screenshots' bucket",
-            },
-            {
-              file: "supabase/migrations/*_price_alerts.sql",
-              desc: "24/7 price_alerts table (+% / -% bands) + /api/alerts/check cron + Telegram Bot",
-            },
-          ].map((item) => (
-            <div
-              key={item.file}
-              className="flex items-start gap-2.5 rounded-xl border border-slate-800/80 bg-[#090D13] p-3.5"
-            >
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-              <div className="min-w-0">
-                <p className="truncate font-mono text-xs font-medium text-slate-200">
-                  {item.file}
-                </p>
-                <p className="mt-0.5 text-[11px] text-slate-500">{item.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {!supabaseConfigured && (
-          <div className="mt-5 rounded-xl border border-slate-800 bg-[#080B10] p-4">
-            <p className="text-xs font-semibold text-slate-200">
-              Connect your Supabase project in 1 step:
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              Create <code className="text-emerald-300">.env.local</code> in the
-              workspace root (or connect the Supabase app) with:
-            </p>
-            <pre className="mt-2.5 overflow-x-auto rounded-lg border border-slate-800/90 bg-[#0D1117] p-3 font-mono text-xs text-slate-300">
-{`NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key`}
-            </pre>
-          </div>
-        )}
       </div>
 
       {/* Ready status footer */}

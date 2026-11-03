@@ -14,7 +14,6 @@ import {
   LogOut,
   Menu,
   ShieldAlert,
-  ShieldCheck,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
@@ -300,27 +299,17 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
             </Link>
           </nav>
 
-          {/* Subtle Hover Tip */}
-          <div className="mt-6 rounded-xl border border-slate-800/80 bg-[#080B10]/80 p-3">
-            <div className="flex items-center gap-2 text-[11px] font-medium text-slate-300">
-              {supabaseConfigured ? (
-                <>
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                  <span>Supabase Session Active</span>
-                </>
-              ) : (
-                <>
-                  <ShieldAlert className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <span>Preview Session Mode</span>
-                </>
-              )}
+          {!supabaseConfigured && (
+            <div className="mt-6 rounded-xl border border-slate-800/80 bg-[#080B10]/80 p-3">
+              <div className="flex items-center gap-2 text-[11px] font-medium text-slate-300">
+                <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                <span>Preview Session Mode</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                Set NEXT_PUBLIC_SUPABASE_URL &amp; ANON_KEY in .env.local to activate live Supabase Auth.
+              </p>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-              {supabaseConfigured
-                ? "Authenticated via @supabase/ssr with server-verified JWT cookies."
-                : "Set NEXT_PUBLIC_SUPABASE_URL & ANON_KEY in .env.local to activate live Supabase Auth."}
-            </p>
-          </div>
+          )}
         </div>
       </div>
 
