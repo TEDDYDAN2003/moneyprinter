@@ -195,6 +195,7 @@ export function normalizeSymbol(raw: string): string {
   const cleaned = raw.trim().toUpperCase().replace(/\s+/g, "");
   if (!cleaned) return "";
   const alphaNum = cleaned.replace(/[^A-Z0-9]/g, "");
+  if (["NASDAQ", "NASDAQ100", "NAS100", "US100", "USTEC", "NDX"].includes(alphaNum)) return "NAS100";
   if (alphaNum.length === 6 && KNOWN_SIX_CHAR_FX.has(alphaNum)) {
     return `${alphaNum.slice(0, 3)}/${alphaNum.slice(3)}`;
   }
@@ -248,7 +249,7 @@ interface InstrumentSpec {
 }
 
 function getInstrumentSpec(symbol: string): InstrumentSpec {
-  const key = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const key = normalizeSymbol(symbol).toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   if (key === "XAUUSD" || key === "GOLD") {
     return {
@@ -751,7 +752,7 @@ export function computeStrategyProbabilityStats(
 
 export function formatPrice(price: number | null, symbol: string): string {
   if (price === null || !Number.isFinite(price)) return "—";
-  const key = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const key = normalizeSymbol(symbol).toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (
     key === "XAUUSD" ||
     key === "US30" ||

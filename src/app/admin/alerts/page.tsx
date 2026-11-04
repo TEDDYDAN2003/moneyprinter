@@ -1806,6 +1806,10 @@ export default function GlobalPriceAlertsPage() {
                         key={item.symbol}
                         type="button"
                         onClick={() => {
+                          if (symbolInput.trim().toUpperCase() !== item.symbol) {
+                            setInitialPriceInput("");
+                            setTargetPriceInput("");
+                          }
                           setSymbolInput(item.symbol);
                           void fetchLivePriceIntoModal(item.symbol);
                         }}
@@ -1815,12 +1819,15 @@ export default function GlobalPriceAlertsPage() {
                             : "border-slate-800 bg-[#090D13] text-slate-400 hover:border-slate-700 hover:text-white"
                         }`}
                       >
-                        {item.symbol}
+                        {item.symbol === "NAS100" ? "NASDAQ (NAS100)" : item.symbol}
                       </button>
                     );
                   })}
                 </div>
 
+                {["NASDAQ", "NASDAQ100", "NAS100", "US100", "USTEC", "NDX"].includes(symbolInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")) && (
+                  <p className="mt-2 text-xs text-amber-300">NASDAQ alerts use a Nasdaq-100 index feed, not your broker’s CFD price. Quotes may differ or be delayed; the cash-index feed may be unavailable outside US market hours. Always verify with your broker. Alerts cannot trigger when the feed returns no quote. The Yahoo fallback rejects quotes older than two minutes.</p>
+                )}
                 <div className="mt-2.5 flex items-center gap-2">
                   <input
                     type="text"

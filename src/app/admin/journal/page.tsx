@@ -2179,7 +2179,7 @@ export default function JournalPage() {
                     className="mt-1.5 w-full rounded-xl border border-slate-800 bg-[#080B10] px-3.5 py-2.5 font-mono text-sm font-bold text-white placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
                   />
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {POPULAR_SYMBOLS.slice(0, 7).map((sym) => (
+                    {POPULAR_SYMBOLS.slice(0, 8).map((sym) => (
                       <button
                         key={sym}
                         type="button"
@@ -2190,10 +2190,13 @@ export default function JournalPage() {
                             : "border-slate-800 bg-[#090D13] text-slate-400 hover:border-slate-700 hover:text-slate-200"
                         }`}
                       >
-                        {sym}
+                        {sym === "NAS100" ? "NASDAQ (NAS100)" : sym}
                       </button>
                     ))}
                   </div>
+                  {normalizeSymbol(symbol) === "NAS100" && (
+                    <p className="mt-2 text-[11px] text-amber-300">NASDAQ 100 (NAS100 / US100 / USTEC): P&amp;L and margin estimates assume 1 index unit per lot. Your broker may use a different contract size—check its specifications.</p>
+                  )}
                 </div>
 
                 <div>

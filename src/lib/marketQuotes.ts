@@ -56,6 +56,8 @@ export function normalizeMarketSymbol(raw: string): string {
     DJI: "US30",
     DOW: "US30",
     DJ30: "US30",
+    NASDAQ: "NAS100",
+    NASDAQ100: "NAS100",
     USTEC: "NAS100",
     NDX: "NAS100",
     US100: "NAS100",
@@ -307,7 +309,15 @@ async function fetchYahooQuote(
     if (!res.ok) return null;
 
     const json = await res.json();
-    const price = Number(json?.chart?.result?.[0]?.meta?.regularMarketPrice);
+    const meta = json?.chart?.result?.[0]?.meta;
+    const price = Number(meta?.regularMarketPrice);
+    // ^NDX is the cash index: Yahoo may return yesterday's close while a
+    // broker's NAS100 CFD is trading. Never trigger alerts using stale data.
+    if (normalizedSymbol === "NAS100") {
+      const marketTimeMs = Number(meta?.regularMarketTime) * 1000;
+      const ageMs = Date.now() - marketTimeMs;
+      if (!Number.isFinite(marketTimeMs) || marketTimeMs <= 0 || ageMs > 120_000 || ageMs < -60_000) return null;
+    }
     if (Number.isFinite(price) && price > 0) {
       return {
         symbol: normalizedSymbol,
