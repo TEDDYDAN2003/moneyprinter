@@ -72,7 +72,6 @@ import {
   STRATEGY_CATALOG,
   STRATEGY_FAMILIES,
 } from "@/lib/strategies";
-import { calculatePositionRisk, loadRiskPercent, saveRiskPercent } from "@/lib/riskManagement";
 import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
 import { JournalPnlCalendar } from "@/components/JournalPnlCalendar";
 import {
@@ -145,18 +144,6 @@ export default function JournalPage() {
   >({});
 
   const [loading, setLoading] = useState(true);
-  const [riskPercent, setRiskPercent] = useState<number | null>(null);
-  const [riskDraft, setRiskDraft] = useState("3");
-  const [riskSettingsError, setRiskSettingsError] = useState<string | null>(null);
-  const [riskSettingsBusy, setRiskSettingsBusy] = useState(false);
-  const [riskSettingsNotice, setRiskSettingsNotice] = useState<string | null>(null);
-  const [riskContract, setRiskContract] = useState("");
-  const [riskConversion, setRiskConversion] = useState("");
-  const [riskMinLot, setRiskMinLot] = useState("");
-  const [riskMaxLot, setRiskMaxLot] = useState("");
-  const [riskLotStep, setRiskLotStep] = useState("");
-  const [riskCostPerLot, setRiskCostPerLot] = useState("");
-  const [riskSpecsConfirmed, setRiskSpecsConfirmed] = useState(false);
   const [migrationHint, setMigrationHint] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -257,24 +244,6 @@ export default function JournalPage() {
   }, [loadAllJournalData]);
 
   useEffect(() => {
-    let mounted = true;
-    loadRiskPercent().then(value => { if (mounted) { setRiskPercent(value); setRiskDraft(String(value)); } })
-      .catch(err => { if (mounted) setRiskSettingsError(err instanceof Error ? err.message : "Could not load risk rule."); });
-    return () => { mounted = false; };
-  }, []);
-
-  const updateRiskRule = async () => {
-    try {
-      setRiskSettingsBusy(true); setRiskSettingsError(null); setRiskSettingsNotice(null);
-      const next = Number(riskDraft);
-      if (!riskDraft.trim() || !Number.isFinite(next) || next <= 0 || next > 100) throw new Error("Enter a percentage above 0 and no more than 100.");
-      await saveRiskPercent(next); setRiskPercent(next); setRiskSettingsNotice("Risk rule saved.");
-    } catch (err) { setRiskSettingsError(err instanceof Error ? err.message : "Could not save risk rule."); }
-    finally { setRiskSettingsBusy(false); }
-  };
-
-
-  useEffect(() => {
     function handleCloudSyncComplete() {
       void loadAllJournalData();
     }
@@ -318,9 +287,7 @@ export default function JournalPage() {
   const isBacktestMode = activeAccount === "backtest";
 
   // --- Open Modals ---
-  const resetRiskInputs = () => { setRiskMinLot(""); setRiskMaxLot(""); setRiskLotStep(""); setRiskCostPerLot(""); setRiskSpecsConfirmed(false); };
   const openCreateModal = (overrideAccount?: AccountType) => {
-    resetRiskInputs();
     const targetMode = overrideAccount ?? activeAccount;
     setEditingEntry(null);
     setReadOnlyChild(false);
@@ -348,7 +315,6 @@ export default function JournalPage() {
   };
 
   const openEditModal = (entry: JournalEntry) => {
-    resetRiskInputs();
     setReadOnlyChild(!!entry.parentEntryId);
     setEditingEntry(entry);
     setFormError(null);
@@ -424,22 +390,6 @@ export default function JournalPage() {
   const removeStagedFile = (idx: number) => {
     setStagedFiles((prev) => prev.filter((_, i) => i !== idx));
   };
-
-  useEffect(() => {
-    const sym = normalizeSymbol(symbol);
-    const defaults: Record<string, string> = {"XAU/USD":"100", "XAG/USD":"5000", "EUR/USD":"100000", "GBP/USD":"100000", "AUD/USD":"100000", "NZD/USD":"100000", "USD/JPY":"100000", "USD/CAD":"100000", "USD/CHF":"100000", "US30":"1", "NAS100":"1", "SPX500":"1"};
-    setRiskContract(defaults[sym] || "");
-    setRiskConversion(sym.endsWith("/USD") || ["US30", "NAS100", "SPX500"].includes(sym) ? "1" : "");
-    setRiskSpecsConfirmed(false);
-  }, [symbol]);
-
-  const positionRisk = useMemo(() => calculatePositionRisk({
-    balance: formAccountType === "real" ? realBalanceSummary.currentBalance : formAccountType === "demo" ? demoBalanceSummary.currentBalance : backtestBalanceSummary.currentBalance,
-    riskPercent: riskPercent ?? NaN,
-    entry: Number.parseFloat(openingPrice), stop: Number.parseFloat(stopLoss), side: tradeType,
-    contractSize: Number.parseFloat(riskContract), quoteToUsd: Number.parseFloat(riskConversion),
-    costPerLot: Number.parseFloat(riskCostPerLot), minLot: Number.parseFloat(riskMinLot), maxLot: Number.parseFloat(riskMaxLot), lotStep: Number.parseFloat(riskLotStep), lot: Number.parseFloat(lotSize),
-  }), [formAccountType, realBalanceSummary, demoBalanceSummary, backtestBalanceSummary, riskPercent, openingPrice, stopLoss, tradeType, riskContract, riskConversion, riskCostPerLot, riskMinLot, riskMaxLot, riskLotStep, lotSize]);
 
   // --- Live Form Metrics Preview ---
   const liveFormMetrics = useMemo(() => {
@@ -549,20 +499,6 @@ export default function JournalPage() {
     if (!Number.isFinite(parsedLev) || parsedLev < 1) {
       setFormError("Leverage must be at least 1 (e.g. 500 for 1:500).");
       return;
-    }
-
-    // Gate open real/demo records. Historical closed trades and backtests remain
-    // editable even if they pre-date a risk rule.
-    if (formAccountType !== "backtest" && parsedClose === null) {
-      if (riskPercent === null) { setFormError("Risk rule could not be loaded; resolve the settings error before saving an open record."); return; }
-      if (!riskSpecsConfirmed) { setFormError("Verify and confirm the broker contract, conversion rate, lot limits, lot step and cost estimate in the risk calculator."); return; }
-      if (!positionRisk) { setFormError("Complete the risk calculator: positive journal balance, valid loss-side stop, broker specifications and estimated costs are required. Lot values must use at most 4 decimal places."); return; }
-      const min = Number.parseFloat(riskMinLot), max = Number.parseFloat(riskMaxLot), step = Number.parseFloat(riskLotStep);
-      if (parsedLots + 1e-9 < min || parsedLots > max + 1e-9 || Math.abs(parsedLots / step - Math.round(parsedLots / step)) > 1e-7) {
-        setFormError("Lot size must meet the broker minimum, maximum and lot increment."); return;
-      }
-      if (!positionRisk.affordable) { setFormError("The broker minimum lot exceeds your risk budget. Do not take this trade at these settings."); return; }
-      if (positionRisk.estimatedRisk > positionRisk.budget + 1e-9) { setFormError("Estimated stop loss plus costs exceeds your global risk budget. Reduce the lot size or skip the trade."); return; }
     }
 
     const parsedDate = dateTimeLocal ? new Date(dateTimeLocal) : new Date();
@@ -1358,17 +1294,6 @@ export default function JournalPage() {
         </div>
       )}
 
-      <section className="rounded-xl border border-emerald-900/70 bg-[#0E131B] p-4" aria-label="Global risk management">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[230px]"><h2 className="text-sm font-semibold text-white">Global risk per trade</h2><p className="mt-1 text-xs text-slate-400">Based on each account’s journal balance (deposits − withdrawals + realised P&amp;L), not live broker equity. Keep your ledger current.</p></div>
-          <label className="text-xs text-slate-300">Risk % <input type="number" min="0.0001" max="100" step="any" value={riskDraft} onChange={e => setRiskDraft(e.target.value)} className="ml-2 w-20 rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-          <button type="button" onClick={() => void updateRiskRule()} disabled={riskSettingsBusy} className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 disabled:opacity-50">Save rule</button>
-          <span className="text-xs text-slate-400">Active: {riskPercent === null ? "unavailable" : `${riskPercent}%`}</span>
-        </div>
-        {riskSettingsError && <p role="alert" className="mt-2 text-xs text-rose-300">Risk settings: {riskSettingsError}</p>}
-        {riskSettingsNotice && <p role="status" className="mt-2 text-xs text-emerald-300">{riskSettingsNotice}</p>}
-        <p className="mt-2 text-[11px] text-amber-300">The ledger does not include unrealised P&amp;L, and may differ from Exness equity. This is a planning estimate, not an order or a guaranteed maximum loss.</p>
-      </section>
       <div className="mb-4 rounded-xl border border-cyan-900 bg-cyan-950/20 p-3 text-xs text-cyan-100">
         Drag one record onto another to merge: the closed record is the parent (if both are closed, the drop target is the parent). Same instrument and account required. Use the dropdown for touch or keyboard. Only the parent counts in results. Children retain their original details and return to those details when detached.
         <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/journal-child"); const child = entries.find(x => x.id === id && x.parentEntryId); if (child) void changeGroup(child, null); }} className="mt-2 rounded-lg border border-dashed border-cyan-700 px-3 py-2 text-cyan-300">Drop a child tab here to detach it (or use its Detach button).</div>
@@ -2479,32 +2404,6 @@ export default function JournalPage() {
                   />
                 </div>
               </div>
-
-              {formAccountType !== "backtest" && (
-                <section className="space-y-3 rounded-xl border border-emerald-700/50 bg-emerald-950/10 p-4" aria-label="Position risk calculator">
-                  <h3 className="text-sm font-bold text-emerald-300">Position sizing · stop first</h3>
-                  <p className="text-xs text-slate-300">Set entry and your chart-based stop first. Then verify the broker specifications below. No stop is calculated for you. The rule applies to open Real and Demo records; closed records and backtests are not blocked.</p>
-                  <p className="text-xs text-slate-400">{formAccountType === "real" ? "Real" : "Demo"} journal balance: <strong className="text-white">{formatUsd(formAccountType === "real" ? realBalanceSummary.currentBalance : demoBalanceSummary.currentBalance)}</strong> · Rule: <strong className="text-white">{riskPercent === null ? "not loaded" : `${riskPercent}%`}</strong> · Budget: <strong className="text-white">{riskPercent !== null ? formatUsd(Math.max(0, (formAccountType === "real" ? realBalanceSummary.currentBalance : demoBalanceSummary.currentBalance)) * riskPercent / 100) : "—"}</strong></p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="text-xs text-slate-300">Contract size (units per 1 lot)<input type="number" step="any" min="0" value={riskContract} onChange={e => {setRiskContract(e.target.value); setRiskSpecsConfirmed(false);}} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                    <label className="text-xs text-slate-300">USD per 1 unit of quote currency<input type="number" step="any" min="0" value={riskConversion} onChange={e => {setRiskConversion(e.target.value); setRiskSpecsConfirmed(false);}} placeholder="e.g. 1 for USD-quoted" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                    <label className="text-xs text-slate-300">Broker minimum lot<input type="number" step="any" min="0" value={riskMinLot} onChange={e => {setRiskMinLot(e.target.value); setRiskSpecsConfirmed(false);}} placeholder="Check Exness" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                    <label className="text-xs text-slate-300">Broker maximum lot<input type="number" step="any" min="0" value={riskMaxLot} onChange={e => {setRiskMaxLot(e.target.value); setRiskSpecsConfirmed(false);}} placeholder="Check Exness" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                    <label className="text-xs text-slate-300">Broker lot increment (up to 4 decimal places)<input type="number" step="any" min="0" value={riskLotStep} onChange={e => {setRiskLotStep(e.target.value); setRiskSpecsConfirmed(false);}} placeholder="Check Exness" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                    <label className="text-xs text-slate-300 sm:col-span-2">Estimated additional costs / slippage buffer in USD per lot<input type="number" step="any" min="0" value={riskCostPerLot} onChange={e => {setRiskCostPerLot(e.target.value); setRiskSpecsConfirmed(false);}} placeholder="Enter an estimate, or 0" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-                  </div>
-                  <p className="text-[11px] text-amber-300">Verify all values on Exness; suggested defaults are not broker-verified. For a USD-quoted instrument, conversion is 1. For other quote currencies, supply the current USD value of one quote-currency unit. Use a conservative cost estimate; losses can exceed it.</p>
-                  <label className="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" checked={riskSpecsConfirmed} onChange={e => setRiskSpecsConfirmed(e.target.checked)} className="mt-0.5" /> I checked these specifications and the cost estimate against my broker.</label>
-                  {positionRisk ? (
-                    <div className="rounded-lg bg-slate-950 p-3 text-xs text-slate-200 space-y-1">
-                      <p>Estimated risk for entered lot: <strong className={positionRisk.estimatedRisk > positionRisk.budget + 1e-9 ? "text-rose-400" : "text-emerald-300"}>{formatUsd(positionRisk.estimatedRisk)}</strong> of {formatUsd(positionRisk.budget)} budget</p>
-                      <p>Maximum suggested lot: <strong className="text-white">{positionRisk.affordable ? positionRisk.suggestedLot.toFixed(8).replace(/\.?0+$/, "") : "None — minimum lot is too large"}</strong></p>
-                      {positionRisk.affordable && <button type="button" onClick={() => setLotSize(String(positionRisk.suggestedLot))} className="mt-1 rounded border border-emerald-600 px-2 py-1 text-emerald-300">Use suggested lot</button>}
-                    </div>
-                  ) : <p className="text-xs text-amber-300">Enter a positive journal balance, valid entry and loss-side stop, lot and all broker values to calculate. The stop must be below entry for a buy and above entry for a sell.</p>}
-                  <p className="text-[11px] text-slate-400">This checks journal records only; it does not place orders or stop trades at your broker. Spread, gaps, slippage, conversion changes and fees can make actual losses larger. Review Exness before trading. Existing telemetry below uses its own default contract assumptions.</p>
-                </section>
-              )}
 
               {geometryWarning && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 font-mono text-[11px] text-amber-200">
