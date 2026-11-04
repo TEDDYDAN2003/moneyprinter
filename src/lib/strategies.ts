@@ -1,7 +1,8 @@
 export type StrategyFamily =
   | "Pullback Strategy"
   | "Volume Profile Strategy"
-  | "Liquidity Sweep Strategy";
+  | "Liquidity Sweep Strategy"
+  | "Moving Average Strategy";
 
 export interface StrategyDefinition {
   id: string;
@@ -158,12 +159,29 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     href: "/admin/strategy/liquidity-sweep-strategy",
     accentHex: "#fb7185",
   },
+  {
+    id: "ma-crossover-bullish",
+    family: "Moving Average Strategy",
+    label: "Moving Average Crossover — Bullish",
+    shortLabel: "MA Crossover · Bullish",
+    href: "/admin/strategy/moving-average-strategy",
+    accentHex: "#34d399",
+  },
+  {
+    id: "ma-crossover-bearish",
+    family: "Moving Average Strategy",
+    label: "Moving Average Crossover — Bearish",
+    shortLabel: "MA Crossover · Bearish",
+    href: "/admin/strategy/moving-average-strategy",
+    accentHex: "#fb7185",
+  },
 ];
 
 export const STRATEGY_FAMILIES: StrategyFamily[] = [
   "Pullback Strategy",
   "Volume Profile Strategy",
   "Liquidity Sweep Strategy",
+  "Moving Average Strategy",
 ];
 
 export const BACKTEST_TIMEFRAMES = [

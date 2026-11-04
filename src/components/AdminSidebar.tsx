@@ -40,6 +40,11 @@ const STRATEGY_ITEMS = [
     href: "/admin/strategy/liquidity-sweep-strategy",
     badge: "5 Steps",
   },
+  {
+    label: "Moving Average",
+    href: "/admin/strategy/moving-average-strategy",
+    badge: "Crossover",
+  },
 ];
 
 export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {

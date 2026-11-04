@@ -141,11 +141,13 @@ create table if not exists public.pullback_checklist_images (
       'vp_reversal',
       'vp_breakout',
       'liq_bullish',
-      'liq_bearish'
+      'liq_bearish',
+      'ma_bullish',
+      'ma_bearish'
     )
   ),
   step_id text not null check (
-    step_id ~ '^(bull|bear|catch|vp|liq)-(setup-|poc-|var-|bo-|flow-|bull-|bear-)?[1-9][0-9]*$'
+    step_id ~ '^(bull|bear|catch|vp|liq|ma)-(setup-|poc-|var-|bo-|flow-|bull-|bear-)?[1-9][0-9]*$'
   ),
   storage_path text not null unique,
   file_name text not null,

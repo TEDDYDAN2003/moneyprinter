@@ -10,7 +10,9 @@ export type ReferenceMarketScope =
   | "vp_reversal"
   | "vp_breakout"
   | "liq_bullish"
-  | "liq_bearish";
+  | "liq_bearish"
+  | "ma_bullish"
+  | "ma_bearish";
 
 export const PULLBACK_BUCKET = "pullback-references";
 export const MAX_FILE_SIZE_MB = 10;
