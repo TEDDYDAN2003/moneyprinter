@@ -172,7 +172,7 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     family: "Moving Average Strategy",
     label: "Moving Average Crossover — Bearish",
     shortLabel: "MA Crossover · Bearish",
-    href: "/admin/strategy/moving-average-strategy",
+    href: "/admin/strategy/moving-average-strategy?direction=bearish",
     accentHex: "#fb7185",
   },
   {
@@ -188,7 +188,23 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     family: "Moving Average Strategy",
     label: "Moving Average Support & Resistance — Bearish",
     shortLabel: "MA Resistance · Bearish",
-    href: "/admin/strategy/moving-average-strategy?approach=support",
+    href: "/admin/strategy/moving-average-strategy?approach=support&direction=bearish",
+    accentHex: "#fb7185",
+  },
+  {
+    id: "ma-200-indicator-bullish",
+    family: "Moving Average Strategy",
+    label: "200 EMA with Indicator — Bullish",
+    shortLabel: "200 EMA Filter · Bullish",
+    href: "/admin/strategy/moving-average-strategy?approach=filter",
+    accentHex: "#34d399",
+  },
+  {
+    id: "ma-200-indicator-bearish",
+    family: "Moving Average Strategy",
+    label: "200 EMA with Indicator — Bearish",
+    shortLabel: "200 EMA Filter · Bearish",
+    href: "/admin/strategy/moving-average-strategy?approach=filter&direction=bearish",
     accentHex: "#fb7185",
   },
 ];
