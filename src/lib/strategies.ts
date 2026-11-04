@@ -175,6 +175,22 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     href: "/admin/strategy/moving-average-strategy",
     accentHex: "#fb7185",
   },
+  {
+    id: "ma-support-resistance-bullish",
+    family: "Moving Average Strategy",
+    label: "Moving Average Support & Resistance — Bullish",
+    shortLabel: "MA Support · Bullish",
+    href: "/admin/strategy/moving-average-strategy?approach=support",
+    accentHex: "#34d399",
+  },
+  {
+    id: "ma-support-resistance-bearish",
+    family: "Moving Average Strategy",
+    label: "Moving Average Support & Resistance — Bearish",
+    shortLabel: "MA Resistance · Bearish",
+    href: "/admin/strategy/moving-average-strategy?approach=support",
+    accentHex: "#fb7185",
+  },
 ];
 
 export const STRATEGY_FAMILIES: StrategyFamily[] = [
