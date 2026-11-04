@@ -74,6 +74,7 @@ import {
 } from "@/lib/strategies";
 import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
 import { JournalPnlCalendar } from "@/components/JournalPnlCalendar";
+import { JournalImageViewer } from "@/components/JournalImageViewer";
 import {
   CLOUD_SYNC_COMPLETE_EVENT,
   TRIGGER_CLOUD_SYNC_EVENT,
@@ -205,6 +206,9 @@ export default function JournalPage() {
   const [uploadingStudyShot, setUploadingStudyShot] = useState(false);
   const [studyShotError, setStudyShotError] = useState<string | null>(null);
   const studyFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string; temporary?: boolean } | null>(null);
+  const closeImagePreview = useCallback(() => setPreviewImage(null), []);
+  useEffect(() => () => { if (previewImage?.temporary) URL.revokeObjectURL(previewImage.url); }, [previewImage]);
 
   // Delete confirmation states
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -1535,7 +1539,7 @@ export default function JournalPage() {
                         key={entry.id}
                         onDragOver={e => { if (e.dataTransfer.types.includes("text/journal-record")) e.preventDefault(); }}
                         onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("text/journal-record"); if (id) dropOnParent(id, entry); }}
-                        className="transition-colors hover:bg-[#111722]"
+                        className={`transition-colors ${metrics.outcome === "open" ? "bg-orange-500/[0.12] hover:bg-orange-500/[0.19] shadow-[inset_3px_0_0_0_#f97316]" : metrics.outcome === "win" ? "bg-emerald-500/[0.12] hover:bg-emerald-500/[0.19] shadow-[inset_3px_0_0_0_#10b981]" : metrics.outcome === "loss" ? "bg-rose-500/[0.12] hover:bg-rose-500/[0.19] shadow-[inset_3px_0_0_0_#f43f5e]" : "bg-slate-500/[0.04] hover:bg-slate-500/[0.10]"}`}
                       >
                         {/* Full record UUID is available via Copy ID. */}
                         <td className="px-4 py-3.5 align-top whitespace-nowrap">
@@ -2486,12 +2490,10 @@ export default function JournalPage() {
                               key={shot.id}
                               className="group relative h-16 w-24 overflow-hidden rounded-lg border border-slate-700 bg-black"
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={shot.url}
-                                alt={shot.fileName}
-                                className="h-full w-full object-cover"
-                              />
+                              <button type="button" onClick={() => setPreviewImage({ url: shot.url, name: shot.fileName })} aria-label={`Open screenshot ${shot.fileName}`} className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-cyan-400">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={shot.url} alt={shot.fileName} className="h-full w-full object-cover" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteScreenshot(shot)}
@@ -2513,9 +2515,9 @@ export default function JournalPage() {
                           key={`${file.name}-${i}`}
                           className="flex items-center justify-between rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-200"
                         >
-                          <span className="truncate font-mono">
+                          <button type="button" onClick={() => setPreviewImage({ url: URL.createObjectURL(file), name: file.name, temporary: true })} className="truncate text-left font-mono underline decoration-cyan-500/50 hover:text-white" aria-label={`Preview staged screenshot ${file.name}`}>
                             {file.name} ({formatBytes(file.size)})
-                          </span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => removeStagedFile(i)}
@@ -3009,14 +3011,11 @@ export default function JournalPage() {
                           </button>
                         </div>
                       </div>
-                      <div className="flex max-h-[60vh] items-center justify-center overflow-auto p-3">
+                      <button type="button" onClick={() => setPreviewImage({ url: studyEntryScreenshots[activeShotIndex].url, name: studyEntryScreenshots[activeShotIndex].fileName })} aria-label={`Open screenshot ${studyEntryScreenshots[activeShotIndex].fileName}`} className="flex max-h-[60vh] w-full cursor-zoom-in items-center justify-center overflow-auto p-3 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-cyan-400">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={studyEntryScreenshots[activeShotIndex].url}
-                          alt={studyEntryScreenshots[activeShotIndex].fileName}
-                          className="max-h-[56vh] w-auto rounded-lg object-contain"
-                        />
-                      </div>
+                        <img src={studyEntryScreenshots[activeShotIndex].url} alt={studyEntryScreenshots[activeShotIndex].fileName} className="max-h-[56vh] w-auto rounded-lg object-contain" />
+                      </button>
+                      <p className="pb-3 text-center text-xs text-slate-400">Click the image to open and maximise it.</p>
                     </div>
                   )}
 
@@ -3049,6 +3048,7 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+      {previewImage && <JournalImageViewer url={previewImage.url} name={previewImage.name} onClose={closeImagePreview} />}
     </div>
   );
 }

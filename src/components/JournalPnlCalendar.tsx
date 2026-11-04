@@ -88,7 +88,7 @@ export function JournalPnlCalendar({
   const [selectedDayKey, setSelectedDayKey] = useState<string>(todayKey);
   const [viewScope, setViewScope] = useState<CalendarViewScope>("month");
   const [metricMode, setMetricMode] = useState<CellMetricMode>("avg");
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [hasAutoAlignedMonth, setHasAutoAlignedMonth] = useState(false);
 
   // Filter entries to current account tab (or all accounts if toggled)
@@ -377,6 +377,7 @@ export function JournalPnlCalendar({
         <button
           type="button"
           onClick={() => setCollapsed((prev) => !prev)}
+          aria-expanded={!collapsed}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-[#111620] px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-white"
         >
           <CalendarIcon className="h-3.5 w-3.5 text-emerald-400" />
