@@ -33,7 +33,8 @@ const PATTERNS: Pattern[] = [
   {name:"Tweezer Top", category:"bearish", candles:[C(112,38,27,123),C(38,112,27,123)]},
   {name:"Bullish Harami", category:"bullish", candles:[C(27,120,19,130),C(97,52,42,109)]},
   {name:"Bearish Harami", category:"bearish", candles:[C(120,27,19,130),C(52,97,42,109)]},
-  {name:"Morning Star", category:"bullish", candles:[C(34,102,22,111),C(116,113,103,128),C(105,45,34,115)]},
+  {name:"Morning Star", category:"bullish", candles:[C(34,102,22,111),C(119,108,103,128),C(105,45,34,115)]},
+  {name:"Morning Doji Star", category:"bullish", candles:[C(34,102,22,111),C(117,117,108,127),C(105,45,34,115)]},
   {name:"Bullish Abandoned Baby", category:"bullish", candles:[C(30,74,21,81),C(110,109,100,119),C(75,31,21,83)]},
   {name:"Bearish Abandoned Baby", category:"bearish", candles:[C(120,77,69,129),C(42,41,32,51),C(77,120,69,129)]},
   {name:"Three White Soldiers", category:"bullish", candles:[C(120,100,95,125),C(100,78,72,105),C(78,55,49,84)]},
@@ -51,6 +52,49 @@ const PATTERNS: Pattern[] = [
   {name:"Three Outside Up", category:"bullish", candles:[C(66,91,60,98),C(108,48,40,116),C(50,25,18,57)]},
   {name:"Three Outside Down", category:"bearish", candles:[C(89,64,57,96),C(47,107,39,115),C(105,130,98,138)]},
 ];
+
+
+// Context is educational, not a signal or a prediction. Some definitions vary by source.
+const DESCRIPTIONS: Record<string, string> = {
+  "Doji": "Often signals indecision; its significance depends on the preceding trend and what follows.",
+  "Dragonfly Doji": "After a decline, a long lower wick can suggest rejection of lower prices; look for confirmation.",
+  "Gravestone Doji": "After a rise, a long upper wick can suggest rejection of higher prices; confirmation matters.",
+  "Hammer": "Often watched after a decline; the long lower wick shows a rejection of lower prices.",
+  "Inverted Hammer": "After a decline, its long upper wick can signal buying interest; a later bullish response is commonly watched.",
+  "Hanging Man": "A hammer-shaped candle after an advance; it can warn of weakening buyers, subject to confirmation.",
+  "Bullish Spinning Top": "A small body and wicks show indecision; after a decline it may precede a reversal.",
+  "Bearish Spinning Top": "A small body and wicks show indecision; after an advance it may precede a reversal.",
+  "Bullish Marubozu": "A large bullish body with little or no wick indicates strong buying during that candle.",
+  "Bearish Marubozu": "A large bearish body with little or no wick indicates strong selling during that candle.",
+  "Bullish Kicker": "A bearish candle followed by an upward gap and bullish candle may signal a sudden shift in momentum.",
+  "Bearish Kicker": "A bullish candle followed by a downward gap and bearish candle may signal a sudden shift in momentum.",
+  "Bullish Engulfing": "After a decline, a bullish body engulfs the prior bearish body, suggesting buyers may be gaining control.",
+  "Bearish Engulfing": "After an advance, a bearish body engulfs the prior bullish body, suggesting sellers may be gaining control.",
+  "Piercing Line": "After a decline, a bullish candle opens below the prior close and recovers into the preceding bearish body.",
+  "Dark Cloud Cover": "After an advance, a bearish candle opens above the previous close and falls into the preceding bullish body.",
+  "Tweezer Bottom": "Similar lows after a decline may mark an area where lower prices were rejected twice.",
+  "Tweezer Top": "Similar highs after an advance may mark an area where higher prices were rejected twice.",
+  "Bullish Harami": "After a decline, a smaller candle within the prior bearish body may suggest selling pressure is easing.",
+  "Bearish Harami": "After an advance, a smaller candle within the prior bullish body may suggest buying pressure is easing.",
+  "Morning Star": "After a decline, a small middle candle followed by a bullish candle may indicate a reversal.",
+  "Morning Doji Star": "A morning star variant with a doji as the middle candle; it can indicate indecision before a bullish response.",
+  "Bullish Abandoned Baby": "After a decline, an isolated doji between downward and upward gaps may signal a reversal.",
+  "Bearish Abandoned Baby": "After an advance, an isolated doji between upward and downward gaps may signal a reversal.",
+  "Three White Soldiers": "Three advancing bullish candles can suggest sustained buying, often after a decline or consolidation.",
+  "Three Black Crows": "Three descending bearish candles can suggest sustained selling, often after an advance.",
+  "Three Line Strike": "Three same-direction candles followed by a large opposite candle; interpretation varies with direction and context.",
+  "Cup and Handle": "A rounded recovery followed by a smaller pullback; traders often watch for a breakout above the rim.",
+  "Double Top": "Two peaks near a similar level may indicate resistance; traders often watch for a break below the intervening low.",
+  "Double Bottom": "Two lows near a similar level may indicate support; traders often watch for a break above the intervening high.",
+  "Wedge": "Converging trendlines show a narrowing price range; the direction and outcome depend on the breakout.",
+  "Flag": "A brief consolidation after a sharp move; traders watch the subsequent breakout and its direction.",
+  "Rising Window": "An upward price gap can indicate bullish momentum or continuation, depending on the surrounding trend.",
+  "Falling Window": "A downward price gap can indicate bearish momentum or continuation, depending on the surrounding trend.",
+  "Three Inside Up": "A bullish harami followed by an upward candle may confirm a possible reversal after a decline.",
+  "Three Inside Down": "A bearish harami followed by a downward candle may confirm a possible reversal after an advance.",
+  "Three Outside Up": "A bullish engulfing pattern followed by another rising candle may reinforce a possible reversal.",
+  "Three Outside Down": "A bearish engulfing pattern followed by another falling candle may reinforce a possible reversal.",
+};
 
 function PatternDrawing({ pattern }: { pattern: Pattern }) {
   const count = pattern.candles.length;
@@ -78,17 +122,18 @@ const IMAGE = "/images/candlesticks/candlestick-patterns-overview.webp";
 
 export default function CandlestickCheatsheetPage() {
   const [tab,setTab] = useState<Category>("bullish");
-  const [showPoster,setShowPoster] = useState(false);
+  const [poster,setPoster] = useState<{url:string; name:string} | null>(null);
   const current = PATTERNS.filter(pattern => pattern.category === tab);
   const config = TAB_CONFIG[tab];
   return <div className="space-y-7">
-    <header className="border-b border-slate-800/80 pb-6"><p className="font-mono text-xs uppercase tracking-widest text-emerald-400">Trading workspace / Visual reference</p><h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">Candlestick Cheatsheet</h1><p className="mt-2 text-sm text-slate-400">A visual library of 37 patterns, arranged by directional context.</p><a href="https://www.wikihow.com/Candlestick-Patterns-Cheat-Sheet" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:underline"><BookOpen className="h-3.5 w-3.5" /> Source: wikiHow candlestick pattern cheat sheet <ExternalLink className="h-3 w-3" /></a></header>
-    <section aria-labelledby="poster-title" className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e131b]"><div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"><div><h2 id="poster-title" className="text-base font-bold text-white">Candlestick Patterns Overview</h2><p className="text-xs text-slate-400">Your reference poster · select to enlarge</p></div><button type="button" onClick={()=>setShowPoster(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 hover:border-emerald-500/50"><Maximize2 className="h-3.5 w-3.5 text-emerald-400" /> Expand poster</button></div><button type="button" onClick={()=>setShowPoster(true)} aria-label="Open candlestick patterns overview image" className="block w-full border-t border-slate-800 bg-[#080b10] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-400">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={IMAGE} alt="Candlestick pattern overview poster from wikiHow showing 37 named patterns" className="mx-auto max-h-[580px] w-full object-contain" /></button><p className="px-5 py-3 text-xs text-slate-500">Poster supplied by you · wikiHow. Individual cards below are schematic redrawings.</p></section>
-    <section aria-labelledby="pattern-library"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="pattern-library" className="text-xl font-bold text-white">Pattern Library</h2><p className="mt-1 text-xs text-slate-400">Select a category to browse the visual cards.</p></div><span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-mono text-xs font-semibold text-emerald-300"><Sparkles className="h-3.5 w-3.5" /> 37 patterns</span></div>
+    <header className="border-b border-slate-800/80 pb-6"><p className="font-mono text-xs uppercase tracking-widest text-emerald-400">Trading workspace / Visual reference</p><h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">Candlestick Cheatsheet</h1><p className="mt-2 text-sm text-slate-400">A visual library of {PATTERNS.length} patterns, arranged by directional context.</p><a href="https://www.wikihow.com/Candlestick-Patterns-Cheat-Sheet" target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:underline"><BookOpen className="h-3.5 w-3.5" /> Source: wikiHow candlestick pattern cheat sheet <ExternalLink className="h-3 w-3" /></a><a href="https://www.wikihow.com/Bullish-Candlestick-Patterns" target="_blank" rel="noreferrer" className="ml-0 mt-2 inline-flex items-center gap-1.5 text-xs text-cyan-300 hover:underline sm:ml-5"><BookOpen className="h-3.5 w-3.5" /> Source: wikiHow bullish patterns <ExternalLink className="h-3 w-3" /></a></header>
+    <section aria-labelledby="poster-title" className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e131b]"><div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"><div><h2 id="poster-title" className="text-base font-bold text-white">Candlestick Patterns Overview</h2><p className="text-xs text-slate-400">Your reference poster · select to enlarge</p></div><button type="button" onClick={()=>setPoster({url: IMAGE, name: "Candlestick Patterns Overview · wikiHow"})} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 hover:border-emerald-500/50"><Maximize2 className="h-3.5 w-3.5 text-emerald-400" /> Expand poster</button></div><button type="button" onClick={()=>setPoster({url: IMAGE, name: "Candlestick Patterns Overview · wikiHow"})} aria-label="Open candlestick patterns overview image" className="block w-full border-t border-slate-800 bg-[#080b10] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-400">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={IMAGE} alt="Candlestick pattern overview poster from wikiHow showing 37 named patterns" className="mx-auto max-h-[580px] w-full object-contain" /></button><p className="px-5 py-3 text-xs text-slate-500">Poster supplied by you · wikiHow. Individual cards below are schematic redrawings.</p></section>
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0e131b]" aria-labelledby="bullish-poster-title"><div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"><div><h2 id="bullish-poster-title" className="text-base font-bold text-white">Bullish Patterns Reference</h2><p className="text-xs text-slate-400">Your second wikiHow reference poster · select to enlarge</p></div><button type="button" onClick={() => setPoster({url: "/images/candlesticks/bullish-patterns-overview.webp", name: "Bullish Candlestick Patterns · wikiHow"})} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 hover:border-emerald-500/50"><Maximize2 className="h-3.5 w-3.5 text-emerald-400" /> Expand poster</button></div><button type="button" onClick={() => setPoster({url: "/images/candlesticks/bullish-patterns-overview.webp", name: "Bullish Candlestick Patterns · wikiHow"})} aria-label="Open bullish candlestick patterns reference image" className="block w-full border-t border-slate-800 bg-[#080b10] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-400">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/images/candlesticks/bullish-patterns-overview.webp" alt="wikiHow reference showing 16 bullish candlestick patterns" className="mx-auto max-h-[420px] w-full object-contain" /></button><p className="px-5 py-3 text-xs text-slate-500">Poster supplied by you · wikiHow. Pattern definitions and classification can differ between sources.</p></section>
+    <section aria-labelledby="pattern-library"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="pattern-library" className="text-xl font-bold text-white">Pattern Library</h2><p className="mt-1 text-xs text-slate-400">Select a category to browse the visual cards.</p></div><span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-mono text-xs font-semibold text-emerald-300"><Sparkles className="h-3.5 w-3.5" /> {PATTERNS.length} patterns</span></div>
       <div role="group" aria-label="Pattern categories" className="mt-5 flex flex-wrap gap-2">{(["bullish","bearish","neutral"] as Category[]).map(key=>{const item=TAB_CONFIG[key];const Icon=item.Icon;return <button key={key} type="button" aria-pressed={tab===key} onClick={()=>setTab(key)} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${tab===key ? item.color : "border-slate-800 bg-[#0e131b] text-slate-400 hover:border-slate-600 hover:text-white"}`}><Icon className="h-4 w-4" />{key === "neutral" ? "Neutral" : item.label}<span className="rounded-md bg-black/20 px-1.5 text-xs">{PATTERNS.filter(p=>p.category===key).length}</span></button>})}</div>
       <p className="mt-4 text-xs leading-relaxed text-slate-400">Patterns depend on context and confirmation and do not guarantee an outcome. “Neutral” includes patterns whose direction depends on the trend; some larger examples are chart formations rather than single candlesticks.</p>
-      <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{current.map((pattern,index)=><article key={pattern.name} className={`group overflow-hidden rounded-2xl border border-slate-800/90 bg-[#0E131B] transition ${config.hover}`}><div className="overflow-hidden border-b border-slate-800/80 bg-[#080B10]"><PatternDrawing pattern={pattern} /></div><div className="flex items-center justify-between gap-3 p-4"><h3 className="text-sm font-bold text-white sm:text-base">{pattern.name}</h3><span className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[10px] font-semibold uppercase ${config.color}`}>{tab === "neutral" && pattern.name === "Three Line Strike" ? "Context" : config.label}</span></div></article>)}</div>
+      <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{current.map((pattern,index)=><article key={pattern.name} className={`group overflow-hidden rounded-2xl border border-slate-800/90 bg-[#0E131B] transition ${config.hover}`}><div className="overflow-hidden border-b border-slate-800/80 bg-[#080B10]"><PatternDrawing pattern={pattern} /></div><div className="p-4"><div className="flex items-center justify-between gap-3"><h3 className="text-sm font-bold text-white sm:text-base">{pattern.name}</h3><span className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[10px] font-semibold uppercase ${config.color}`}>{tab === "neutral" && pattern.name === "Three Line Strike" ? "Context" : config.label}</span></div><p className="mt-3 text-sm leading-relaxed text-slate-400">{DESCRIPTIONS[pattern.name]}</p></div></article>)}</div>
     </section>
-    {showPoster && <JournalImageViewer url={IMAGE} name="Candlestick Patterns Overview · wikiHow" onClose={()=>setShowPoster(false)} />}
+    {poster && <JournalImageViewer url={poster.url} name={poster.name} onClose={()=>setPoster(null)} />}
   </div>;
 }
