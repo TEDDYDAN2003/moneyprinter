@@ -1,0 +1,525 @@
+{
+  "1": {
+    "title": "Hammer",
+    "anchor": "1_Hammer",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Hammer-Candlestick-Chart.png",
+        "alt": "Hammer candlestick pattern in S&P 500 chart"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "2": {
+    "title": "Shooting Star",
+    "anchor": "2_Shooting_Star",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/shooting-star-sp500.png",
+        "alt": "Shooting Star candlestick pattern on S&P 500 chart"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "3": {
+    "title": "Bullish Engulfing",
+    "anchor": "3_Bullish_Engulfing",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bullish-Engulfing-Chart.png",
+        "alt": "Bullish engulfing candlestick pattern in EUR/USD chart on TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "4": {
+    "title": "Morning Star",
+    "anchor": "4_Morning_Star",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Morning-Star-MicroStrategy.png",
+        "alt": "Morning Star candlestick pattern in MicroStrategy (MSTR) chart on TradingView showing potential bullish reversal."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "5": {
+    "title": "Evening Star",
+    "anchor": "5_Evening_Star",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Evening-Star-Chart.png",
+        "alt": "Evening Star pattern on MicroStrategy stock chart displayed on TradingView platform"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "6": {
+    "title": "Harami",
+    "anchor": "6_Harami",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Tesla-Bearish-Harami-1024x533.png",
+        "alt": "Tesla Bearish Harami pattern shown on TradingView candlestick chart"
+      },
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bullish-Harami-Amazon-1024x532.png",
+        "alt": "Bullish Harami candlestick pattern in Amazon stock chart on TradingView showing potential trend reversal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "7": {
+    "title": "Hanging Man",
+    "anchor": "7_Hanging_Man",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Nvidia-Hanging-Man.png",
+        "alt": "Hanging Man candlestick pattern in Nvidia chart on TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "8": {
+    "title": "Doji",
+    "anchor": "8_Doji",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Doji-EURUSD-Chart.png",
+        "alt": "Doji candlestick pattern in the EURUSD chart on TradingView"
+      }
+    ],
+    "classification": "Indecision / neutral"
+  },
+  "9": {
+    "title": "Pin Bar",
+    "anchor": "9_Pin_Bar",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bullish-Pin-Bar.png",
+        "alt": "Bullish pin bar pattern in Apple stock chart on TradingView showing potential reversal signal."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "10": {
+    "title": "Bullish Mat Hold",
+    "anchor": "10_Bullish_Mat_Hold",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/bullish-mat-hold-tradingview.png",
+        "alt": "Bullish Mat Hold Candlestick Formation on Apple Chart in TradingView, a bullish continuation pattern within an uptrend."
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "11": {
+    "title": "Gap Up / Gap Down",
+    "anchor": "11_Gap_Up_Gap_Down",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Amazon-Gap-Down.png",
+        "alt": "Amazon stock showing a gap down pattern on TradingView chart."
+      }
+    ],
+    "classification": "Momentum / gap"
+  },
+  "12": {
+    "title": "Tri Star",
+    "anchor": "12_Tri_Star",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/top-tri-star-tradingview.png",
+        "alt": "Candlestick pattern Top Tri Star shown on Tesla (TSLA) stock chart, indicating a bearish reversal."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "13": {
+    "title": "Tweezer Top / Bottom",
+    "anchor": "13_Tweezer_Top_Bottom",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Tweezer-Top-Bottom.png",
+        "alt": "Tweezer Top and Bottom pattern on Alphabet stock chart displayed on TradingView with highlighted candlestick formation"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "14": {
+    "title": "Belt Hold",
+    "anchor": "14_Belt_Hold",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/bullish-belt-hold-tradingview.png",
+        "alt": "Bullish Belt Hold Candlestick Formation on Alphabet (Google) Chart in TradingView, indicating potential upward price movement."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "15": {
+    "title": "Abandoned Baby",
+    "anchor": "15_Abandoned_Baby",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bearish-Abandoned-Baby.png",
+        "alt": "Bearish Abandoned Baby pattern on AMD chart displayed on TradingView platform showing potential reversal signal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "16": {
+    "title": "Kicker",
+    "anchor": "16_Kicker",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bearish-Kicker.png",
+        "alt": "Bearish Kicker candlestick pattern in Netflix chart on TradingView."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "17": {
+    "title": "Three Outside Up / Down",
+    "anchor": "17_Three_Outside_Up_Down",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Three-Outside-Up.png",
+        "alt": "Three Outside Up candlestick pattern on Netflix chart in TradingView with bullish reversal signal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "18": {
+    "title": "Three Inside Up / Down",
+    "anchor": "18_Three_Inside_Up_Down",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Three-Inside-Up-Chart.png",
+        "alt": "Three Inside Up pattern in Apple stock chart on TradingView showing potential bullish reversal"
+      },
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Three-Inside-Down-Chart.png",
+        "alt": "Three Inside Down pattern in Bitcoin chart on TradingView showing potential bearish reversal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "19": {
+    "title": "Piercing Line",
+    "anchor": "19_Piercing_Line",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Piercing-Line-Bitcoin.png",
+        "alt": "Piercing Line candlestick pattern in Bitcoin chart on TradingView showing bullish reversal signal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "20": {
+    "title": "Dark Cloud Cover",
+    "anchor": "20_Dark_Cloud_Cover",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Dark-Cloud-Cover-Bitcoin.png",
+        "alt": "Dark Cloud Cover pattern in the Bitcoin candlestick chart on TradingView showing potential bearish reversal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "21": {
+    "title": "Three Black Crows",
+    "anchor": "21_Three_Black_Crows",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Three-Black-Crows-Chart.png",
+        "alt": "Three Black Crows candlestick pattern in Netflix stock chart on TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "22": {
+    "title": "Rising Three Methods",
+    "anchor": "22_Rising_Three_Methods",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Rising-Three-Methods-Chart.png",
+        "alt": "Rising Three Methods pattern in Tesla chart on TradingView showing bullish continuation"
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "23": {
+    "title": "Falling Three Methods",
+    "anchor": "23_Falling_Three_Methods",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Falling-Three-Methods-Chart.png",
+        "alt": "Falling Three Methods candlestick pattern on Apple chart in TradingView showing bearish continuation setup"
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "24": {
+    "title": "Tasuki Gap",
+    "anchor": "24_Tasuki_Gap",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Tasuki-Gap-Bearish.png",
+        "alt": "Bearish Tasuki Gap pattern in Tesla chart on TradingView showing potential continuation of downtrend."
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "25": {
+    "title": "Inside Bar",
+    "anchor": "25_Inside_Bar",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Inside-Bar-Tesla.png",
+        "alt": "Inside bar pattern in Tesla chart on TradingView."
+      }
+    ],
+    "classification": "Consolidation"
+  },
+  "26": {
+    "title": "Outside Bar",
+    "anchor": "26_Outside_Bar",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Outside-Bar-Apple.png",
+        "alt": "Outside Bar pattern in Apple stock chart on TradingView"
+      }
+    ],
+    "classification": "Volatility expansion"
+  },
+  "27": {
+    "title": "Spinning Top",
+    "anchor": "27_Spinning_Top",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Spinning-Top-EURUSD.png",
+        "alt": "Spinning Top candlestick pattern on EUR/USD chart shown on TradingView platform"
+      }
+    ],
+    "classification": "Indecision / neutral"
+  },
+  "28": {
+    "title": "Popgun",
+    "anchor": "28_Popgun",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/popgun-candlestick-pattern-tradingview.png",
+        "alt": "Popgun Candlestick Pattern on Tesla Chart in TradingView, a two-bar bullish continuation pattern."
+      }
+    ],
+    "classification": "Breakout setup"
+  },
+  "29": {
+    "title": "Shaven Head",
+    "anchor": "29_Shaven_Head",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Shaven-Head-Chart.png",
+        "alt": "Shaven head pattern on Tesla stock chart shown on TradingView"
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "30": {
+    "title": "Shaven Bottom",
+    "anchor": "30_Shaven_Bottom",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Shaven-Bottom-Chart.png",
+        "alt": "Amazon stock chart showing Shaven Bottom candlestick pattern on TradingView"
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "31": {
+    "title": "High Wave Candlestick Pattern",
+    "anchor": "31_High_Wave_Candlestick_Pattern",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/High-Wave-Pattern.png",
+        "alt": "High Wave candlestick pattern on GBPJPY chart shown on TradingView platform"
+      }
+    ],
+    "classification": "Indecision / neutral"
+  },
+  "32": {
+    "title": "Separating Lines",
+    "anchor": "32_Separating_Lines",
+    "charts": [],
+    "classification": "Potential continuation"
+  },
+  "33": {
+    "title": "On Neck",
+    "anchor": "33_On_Neck",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/On-Neck-Pattern.png",
+        "alt": "On Neck candlestick pattern on the S&P 500 chart shown on TradingView with bearish continuation setup"
+      }
+    ],
+    "classification": "Potential continuation"
+  },
+  "34": {
+    "title": "In Neck",
+    "anchor": "34_In_Neck",
+    "charts": [],
+    "classification": "Potential continuation"
+  },
+  "35": {
+    "title": "Breakaway",
+    "anchor": "35_Breakaway",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/bearish-breakaway-tradingview.png",
+        "alt": "Candlestick pattern Bearish Breakaway shown on Netflix (NFLX) chart from TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "36": {
+    "title": "Concealing Baby Swallow",
+    "anchor": "36_Concealing_Baby_Swallow",
+    "charts": [],
+    "classification": "Interpretation varies between sources"
+  },
+  "37": {
+    "title": "Homing Pigeon",
+    "anchor": "37_Homing_Pigeon",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Homing-Pigeon-Chart.png",
+        "alt": "Homing Pigeon candlestick pattern shown in Microsoft stock chart on TradingView platform"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "38": {
+    "title": "Ladder Bottom",
+    "anchor": "38_Ladder_Bottom",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/ladder-bottom-tradingview.png",
+        "alt": "Ladder Bottom Candlestick Formation on Coinbase Chart in TradingView, a bullish reversal pattern after a downtrend."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "39": {
+    "title": "Ladder Top",
+    "anchor": "39_Ladder_Top",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/ladder-top-tradingview.png",
+        "alt": "Ladder Top Candlestick Formation on Gold Chart in TradingView, a bearish reversal pattern after an uptrend."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "40": {
+    "title": "Matching High",
+    "anchor": "40_Matching_High",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Matching-High-Pattern.png",
+        "alt": "Matching high candlestick pattern showing two consecutive highs in the Netflix chart on TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "41": {
+    "title": "Matching Low",
+    "anchor": "41_Matching_Low",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Matching-Low-pattern.png",
+        "alt": "Matching Low pattern in Robinhood Markets chart on TradingView"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "42": {
+    "title": "Meeting Lines",
+    "anchor": "42_Meeting_Lines",
+    "charts": [],
+    "classification": "Potential reversal"
+  },
+  "43": {
+    "title": "Bullish Side by Side White Lines",
+    "anchor": "43_Bullish_Side_by_Side_White_Lines",
+    "charts": [],
+    "classification": "Potential continuation"
+  },
+  "44": {
+    "title": "Bullish Stick Sandwich",
+    "anchor": "44_Bullish_Stick_Sandwich",
+    "charts": [],
+    "classification": "Potential reversal"
+  },
+  "45": {
+    "title": "Three Line Strike",
+    "anchor": "45_Three_Line_Strike",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Bullish-Three-Line-Strike.png",
+        "alt": "Bullish Three Line Strike candlestick pattern on the Tesla chart on TradingView."
+      }
+    ],
+    "classification": "Interpretation varies between sources"
+  },
+  "46": {
+    "title": "Unique Three River Bottom",
+    "anchor": "46_Unique_Three_River_Bottom",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/unique-three-river-bottom-1.png",
+        "alt": "Unique Three River Bottom Candlestick Formation on Broadcom Chart in TradingView, a bullish reversal pattern."
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "47": {
+    "title": "Three Stars in the South",
+    "anchor": "47_Three_Stars_in_the_South",
+    "charts": [],
+    "classification": "Potential reversal"
+  },
+  "48": {
+    "title": "Advanced Block",
+    "anchor": "48_Advanced_Block",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Advanced-Block-Pattern.png",
+        "alt": "Advanced Block pattern in Bitcoin price chart on TradingView platform"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "49": {
+    "title": "Deliberation",
+    "anchor": "49_Deliberation",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Deliberation-Pattern.png",
+        "alt": "Deliberation pattern forming in Gold chart on TradingView with potential trend reversal signal"
+      }
+    ],
+    "classification": "Potential reversal"
+  },
+  "50": {
+    "title": "Identical Three Crows",
+    "anchor": "50_Identical_Three_Crows",
+    "charts": [
+      {
+        "url": "https://wrtrading.com/wp-content/uploads/Identical-Three-Crows-Tesla.png",
+        "alt": "Identical Three Crows pattern in Tesla stock chart on TradingView showing potential bearish reversal."
+      }
+    ],
+    "classification": "Potential reversal"
+  }
+}
