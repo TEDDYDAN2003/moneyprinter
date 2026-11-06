@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BellRing,
+  ChartCandlestick,
   BookOpen,
   CheckSquare,
   ChevronRight,
@@ -276,6 +277,15 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
               <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400 border border-emerald-500/20">
                 EAT
               </span>
+            </Link>
+
+            {/* Candlestick reference */}
+            <Link
+              href={withSessionQuery("/admin/candlestick-cheatsheet")}
+              onClick={() => setMobileOpen(false)}
+              className={`group flex items-center justify-between rounded-xl border px-3 py-2.5 text-sm font-medium transition-all ${pathname.startsWith("/admin/candlestick-cheatsheet") ? "border-emerald-500/25 bg-emerald-500/12 text-emerald-300" : "border-transparent text-slate-300 hover:bg-slate-800/60 hover:text-white"}`}
+            >
+              <span className="flex items-center gap-3"><ChartCandlestick className={`h-4 w-4 ${pathname.startsWith("/admin/candlestick-cheatsheet") ? "text-emerald-400" : "text-slate-400 group-hover:text-slate-200"}`} /><span>Candlestick Cheatsheet</span></span>
             </Link>
 
             {/* Price Alerts */}
