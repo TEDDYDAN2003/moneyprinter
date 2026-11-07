@@ -10,6 +10,7 @@ import {
   Filter,
   X,
 } from "lucide-react";
+import { formatStrategyLabel } from "@/lib/strategies";
 import {
   computeTradeMetrics,
   formatUsd,
@@ -302,6 +303,13 @@ export function JournalPnlCalendar({
   }
 
   const selectedBucket = bucketsByDate.get(selectedDayKey) ?? null;
+  // Use the same scoped, parent-only input and local trade-date grouping as the
+  // calendar totals, so the visible records reconcile with the selected day.
+  const selectedDayTrades = useMemo(() => scopedEntries
+    .filter(entry => parseEntryDateKey(entry.tradedAt) === selectedDayKey)
+    .map(entry => ({ entry, metrics: computeTradeMetrics(entry) }))
+    .sort((a, b) => new Date(b.entry.tradedAt).getTime() - new Date(a.entry.tradedAt).getTime()),
+    [scopedEntries, selectedDayKey]);
   const formattedSelectedDate = useMemo(() => {
     const [yy, mm, dd] = selectedDayKey.split("-").map(Number);
     if (!yy || !mm || !dd) return selectedDayKey;
@@ -665,6 +673,33 @@ export function JournalPnlCalendar({
               )}
             </div>
           </div>
+
+          {/* Individual trades on the selected date. Daily total/average above remain unchanged. */}
+          {selectedDayTrades.length > 0 && (
+            <section aria-label={`Trades for ${formattedSelectedDate}`} className="mt-3 overflow-hidden rounded-xl border border-slate-800/80 bg-[#0F141D]">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 px-4 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Trades on {formattedSelectedDate}</h3>
+                  <p className="mt-1 text-xs text-slate-500">Grouped by trade date · open trades are excluded from the day’s P&amp;L</p>
+                </div>
+                <span className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 font-mono text-[11px] text-slate-300">{selectedDayTrades.length} {selectedDayTrades.length === 1 ? "record" : "records"}</span>
+              </div>
+              <ul className="divide-y divide-slate-800/80">
+                {selectedDayTrades.map(({ entry, metrics }) => {
+                  const color = metrics.outcome === "win" ? "text-emerald-400" : metrics.outcome === "loss" ? "text-rose-400" : metrics.outcome === "open" ? "text-orange-300" : "text-slate-300";
+                  const badge = metrics.outcome === "win" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" : metrics.outcome === "loss" ? "border-rose-500/25 bg-rose-500/10 text-rose-300" : metrics.outcome === "open" ? "border-orange-500/25 bg-orange-500/10 text-orange-300" : "border-slate-700 bg-slate-800 text-slate-300";
+                  const time = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }).format(new Date(entry.tradedAt));
+                  return <li key={entry.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 hover:bg-slate-800/20">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-sm font-bold text-white">{entry.symbol}</span><span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase ${entry.tradeType === "buy" ? "border-emerald-500/30 text-emerald-300" : "border-rose-500/30 text-rose-300"}`}>{entry.tradeType}</span><span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-400">{entry.accountType}</span>{entry.timeframe && <span className="font-mono text-[10px] text-slate-400">{entry.timeframe}</span>}</div>
+                      <p className="mt-1 truncate text-xs text-slate-400"><span>{time}</span><span className="mx-1.5 text-slate-600">·</span><span>{entry.lotSize} lots</span>{entry.strategy && <><span className="mx-1.5 text-slate-600">·</span><span title={formatStrategyLabel(entry.strategy)}>{formatStrategyLabel(entry.strategy, true)}</span></>}</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-right"><span className={`rounded-md border px-2 py-1 font-mono text-[10px] font-semibold uppercase ${badge}`}>{metrics.outcome === "open" ? "Running" : metrics.outcome === "win" ? "Win" : metrics.outcome === "loss" ? "Loss" : "Breakeven"}</span><span className={`min-w-[76px] font-mono text-sm font-bold tabular-nums ${color}`}>{metrics.realizedPnlUsd === null ? "—" : formatUsd(metrics.realizedPnlUsd, true)}</span></div>
+                  </li>;
+                })}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </div>
