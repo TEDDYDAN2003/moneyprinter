@@ -1,7 +1,6 @@
 import React, { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { AdminSidebar } from "@/components/AdminSidebar";
-import { CloudDataSyncBanner } from "@/components/CloudDataSyncBanner";
+import { AdminWorkspace } from "@/components/AdminWorkspace";
 import { getAuthenticatedUser, type AppUser } from "@/lib/supabase/server";
 
 export default async function AdminLayout({
@@ -24,23 +23,11 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-[#080B10] text-slate-100">
-      <Suspense
-        fallback={
-          <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-64 border-r border-slate-800/80 bg-[#0B0F16]" />
-        }
-      >
-        <AdminSidebar
-          user={effectiveUser}
-          supabaseConfigured={supabaseConfigured}
-        />
-      </Suspense>
-
-      <div className="lg:pl-64">
-        <main className="mx-auto max-w-6xl px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
-          <CloudDataSyncBanner />
+      <Suspense fallback={<div className="min-h-screen" />}>
+        <AdminWorkspace user={effectiveUser} supabaseConfigured={supabaseConfigured}>
           {children}
-        </main>
-      </div>
+        </AdminWorkspace>
+      </Suspense>
     </div>
   );
 }

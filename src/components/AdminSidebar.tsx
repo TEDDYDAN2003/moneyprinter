@@ -24,6 +24,7 @@ import type { AppUser } from "@/lib/supabase/server";
 interface AdminSidebarProps {
   user: AppUser;
   supabaseConfigured: boolean;
+  courseFocus?: boolean;
 }
 
 const STRATEGY_ITEMS = [
@@ -49,7 +50,7 @@ const STRATEGY_ITEMS = [
   },
 ];
 
-export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
+export function AdminSidebar({ user, supabaseConfigured, courseFocus = false }: AdminSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -113,7 +114,7 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
             type="button"
             onClick={() => setMobileOpen(false)}
             aria-label="Close sidebar"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white lg:hidden"
+            className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white ${courseFocus ? "" : "lg:hidden"}`}
           >
             <X className="h-5 w-5" />
           </button>
@@ -384,9 +385,11 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
         </button>
       </div>
 
-      {/* Mobile Drawer Overlay */}
+      {/* The course uses a full-width canvas; the workspace menu remains available as a drawer. */}
+      {courseFocus && <button type="button" onClick={() => setMobileOpen(true)} aria-label="Open workspace navigation" className="fixed bottom-4 left-4 z-40 hidden items-center gap-2 rounded-xl border border-slate-700 bg-[#111b25] px-3 py-2.5 text-xs font-semibold text-slate-200 shadow-xl hover:border-emerald-500/50 hover:text-white lg:flex"><Menu className="h-4 w-4 text-emerald-400"/> Workspace</button>}
+      {/* Drawer Overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
+        <div className={`fixed inset-0 z-50 flex ${courseFocus ? "" : "lg:hidden"}`}>
           <div
             className="fixed inset-0 bg-black/70 backdrop-blur-xs"
             onClick={() => setMobileOpen(false)}
@@ -398,9 +401,9 @@ export function AdminSidebar({ user, supabaseConfigured }: AdminSidebarProps) {
       )}
 
       {/* Desktop Fixed Sidebar */}
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-64">
+      {!courseFocus && <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-64">
         {sidebarContent}
-      </aside>
+      </aside>}
     </>
   );
 }
