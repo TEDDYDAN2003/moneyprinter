@@ -74,6 +74,7 @@ import {
 } from "@/lib/strategies";
 import { BacktestStrategyPiePanel } from "@/components/StrategyWinPieChart";
 import { JournalPnlCalendar } from "@/components/JournalPnlCalendar";
+import { PriceReviewChecklist } from "@/components/PriceReviewChecklist";
 import { JournalImageViewer } from "@/components/JournalImageViewer";
 import {
   CLOUD_SYNC_COMPLETE_EVENT,
@@ -185,6 +186,16 @@ export default function JournalPage() {
   const [dateTimeLocal, setDateTimeLocal] = useState("");
   const [leverage, setLeverage] = useState("2000");
   const [notes, setNotes] = useState("");
+  const [priceReviewOpen, setPriceReviewOpen] = useState(false);
+  const lastChecklistBlock = useRef<string | null>(null);
+  const setPriceReviewVisibility = useCallback((open: boolean) => setPriceReviewOpen(open), []);
+  const copyChecklistToNotes = useCallback((block: string) => {
+    const previousBlock = lastChecklistBlock.current;
+    lastChecklistBlock.current = block;
+    setNotes(current => previousBlock && current.includes(previousBlock)
+      ? current.replace(previousBlock, block)
+      : [current.trimEnd(), block].filter(Boolean).join("\n\n"));
+  }, []);
 
   // Staged screenshot files inside New/Edit Modal
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
@@ -293,6 +304,7 @@ export default function JournalPage() {
   // --- Open Modals ---
   const openCreateModal = (overrideAccount?: AccountType) => {
     const targetMode = overrideAccount ?? activeAccount;
+    lastChecklistBlock.current = null;
     setEditingEntry(null);
     setReadOnlyChild(false);
     setFormError(null);
@@ -319,6 +331,7 @@ export default function JournalPage() {
   };
 
   const openEditModal = (entry: JournalEntry) => {
+    lastChecklistBlock.current = null;
     setReadOnlyChild(!!entry.parentEntryId);
     setEditingEntry(entry);
     setFormError(null);
@@ -575,6 +588,7 @@ export default function JournalPage() {
 
       setActiveAccount(formAccountType);
       setModalOpen(false);
+      setPriceReviewOpen(false);
       setEditingEntry(null);
       setStagedFiles([]);
     } catch (err) {
@@ -1978,17 +1992,18 @@ export default function JournalPage() {
       {/* ===================================================================== */}
       {/* MODAL 1: NEW / EDIT RECORD OR BACKTEST (+ STRATEGY + SCREENSHOTS)     */}
       {/* ===================================================================== */}
+      {modalOpen && priceReviewOpen && <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/80 backdrop-blur-xs" />}
       {modalOpen && (
         <div
           role="dialog"
-          aria-modal="true"
+          aria-modal={!priceReviewOpen}
           aria-labelledby="journal-modal-title"
           onClick={closeModal}
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xs"
+          className={priceReviewOpen ? "fixed left-0 right-0 top-0 z-50 flex h-[50dvh] items-center justify-center overflow-y-auto p-2 md:inset-y-0 md:right-[45%] md:h-full md:p-4 lg:right-[min(40vw,32rem)]" : "fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xs"}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative my-8 w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-800 bg-[#0D121A] shadow-2xl"
+            className={`relative w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-800 bg-[#0D121A] shadow-2xl ${priceReviewOpen ? "my-0" : "my-8"}`}
           >
             <div className="flex items-center justify-between border-b border-slate-800/90 px-6 py-4">
               <div>
@@ -2022,7 +2037,7 @@ export default function JournalPage() {
 
             <form
               onSubmit={handleSubmitTrade}
-              className="max-h-[calc(90vh-76px)] overflow-y-auto p-6 space-y-5"
+              className={`overflow-y-auto p-4 sm:p-6 space-y-5 ${priceReviewOpen ? "max-h-[calc(50dvh-84px)] md:max-h-[calc(90vh-76px)]" : "max-h-[calc(90vh-76px)]"}`}
             >
               {readOnlyChild && <p className="rounded-lg border border-cyan-800 p-3 text-xs text-cyan-200">Original child details are preserved and cannot be edited while merged. Detach the child to restore and edit it.</p>}
               <fieldset disabled={readOnlyChild} className="space-y-5">
@@ -3048,6 +3063,7 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+      <PriceReviewChecklist open={priceReviewOpen} onOpenChange={setPriceReviewVisibility} recordOpen={modalOpen} canSave={modalOpen && !readOnlyChild && !submitting} hideTag={cashflowModalOpen || !!studyEntry || !!previewImage} onSave={copyChecklistToNotes} />
       {previewImage && <JournalImageViewer url={previewImage.url} name={previewImage.name} onClose={closeImagePreview} />}
     </div>
   );
