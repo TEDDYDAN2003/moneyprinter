@@ -2,7 +2,8 @@ export type StrategyFamily =
   | "Pullback Strategy"
   | "Volume Profile Strategy"
   | "Liquidity Sweep Strategy"
-  | "Moving Average Strategy";
+  | "Moving Average Strategy"
+  | "Range-to-Trigger Strategy";
 
 export interface StrategyDefinition {
   id: string;
@@ -207,6 +208,8 @@ export const STRATEGY_CATALOG: StrategyDefinition[] = [
     href: "/admin/strategy/moving-average-strategy?approach=filter&direction=bearish",
     accentHex: "#fb7185",
   },
+  { id: "rtt-long-v1", family: "Range-to-Trigger Strategy", label: "Range-to-Trigger v1 — Long", shortLabel: "RTT v1 · Long", href: "/admin/strategy/range-to-trigger", accentHex: "#10b981" },
+  { id: "rtt-short-v1", family: "Range-to-Trigger Strategy", label: "Range-to-Trigger v1 — Short", shortLabel: "RTT v1 · Short", href: "/admin/strategy/range-to-trigger?direction=bearish", accentHex: "#fb7185" },
 ];
 
 export const STRATEGY_FAMILIES: StrategyFamily[] = [
@@ -214,6 +217,7 @@ export const STRATEGY_FAMILIES: StrategyFamily[] = [
   "Volume Profile Strategy",
   "Liquidity Sweep Strategy",
   "Moving Average Strategy",
+  "Range-to-Trigger Strategy",
 ];
 
 export const BACKTEST_TIMEFRAMES = [

@@ -28,6 +28,7 @@ interface AdminSidebarProps {
 }
 
 const STRATEGY_ITEMS = [
+  { label: "Range-to-Trigger Strategy", href: "/admin/strategy/range-to-trigger", badge: "NEW" },
   {
     label: "Pullback Strategy",
     href: "/admin/strategy/pullback-strategy",
