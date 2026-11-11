@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { NewsSources } from "@/components/NewsSources";
 import {
   AlertTriangle,
   Clock,
@@ -306,6 +307,7 @@ export default function TimezonesPage() {
 
         {/* Live Reference Clock Cards */}
         <div className="flex flex-wrap items-center gap-3">
+          <NewsSources hideTag={!!lightboxCard} />
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-2.5">
             <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
