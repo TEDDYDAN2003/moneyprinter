@@ -28,6 +28,7 @@ interface AdminSidebarProps {
 }
 
 const STRATEGY_ITEMS = [
+  { label: "0 Wick Strategy", href: "/admin/strategy/zero-wick", badge: "NEW" },
   { label: "Range-to-Trigger Strategy", href: "/admin/strategy/range-to-trigger", badge: "NEW" },
   {
     label: "Pullback Strategy",
