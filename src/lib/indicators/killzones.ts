@@ -2,7 +2,9 @@
 export const killzonesInputs = [
   { id: 'showAsia', name: 'Show Asian Range (00:00 - 06:00 UTC)', type: 'bool', defval: true },
   { id: 'showLondon', name: 'Show London Open (07:00 - 10:00 UTC)', type: 'bool', defval: true },
-  { id: 'showNy', name: 'Show NY Open (12:30 - 15:30 UTC)', type: 'bool', defval: true },
+  { id: 'showNy', name: 'Show NY Open (12:00 - 15:30 UTC)', type: 'bool', defval: true },
+  { id: 'showFullColumn', name: 'Show Full-Height Vertical Tint', type: 'bool', defval: true },
+  { id: 'showTopRuler', name: 'Show Top Canvas Session Ribbon', type: 'bool', defval: true },
   { id: 'asiaColor', name: 'Asian Range Colour', type: 'color', defval: '#94a3b8', tab: 'style' },
   { id: 'londonColor', name: 'London Killzone Colour', type: 'color', defval: '#38bdf8', tab: 'style' },
   { id: 'nyColor', name: 'NY Killzone Colour', type: 'color', defval: '#fbbf24', tab: 'style' }
@@ -13,6 +15,8 @@ const defaults = {
   showAsia: true,
   showLondon: true,
   showNy: true,
+  showFullColumn: true,
+  showTopRuler: true,
   asiaColor: '#94a3b8',
   londonColor: '#38bdf8',
   nyColor: '#fbbf24'
@@ -51,11 +55,11 @@ return {
         col = p.londonColor;
         label = 'LONDON OPEN';
       }
-      // NY Open: 12:30 - 15:30 UTC (750 to 930 mins)
-      else if (p.showNy && timeMin >= 750 && timeMin <= 930) {
+      // NY Open: 12:00 - 15:30 UTC (720 to 930 mins)
+      else if (p.showNy && timeMin >= 720 && timeMin <= 930) {
         sessType = 'ny';
         col = p.nyColor;
-        label = 'NY OPEN';
+        label = 'NY OPEN KZ';
       }
 
       if (sessType) {
@@ -84,48 +88,67 @@ return {
     }
     if (currentSession) sessions.push(currentSession);
 
-    indicator._killzones = { p, sessions: sessions.slice(-60) };
+    // Keep all sessions across dataset so zooming / scrolling backwards works 100%
+    indicator._killzones = { p, sessions, n };
     return rows;
   },
 
   draw(args) {
     const { ctx, indicator } = args;
     const v = indicator._killzones;
-    if (!v) return false;
+    if (!v || !v.sessions) return false;
     const p = v.p;
     const vis = bv.visible(args);
     const X = i => bv.xOfIndex(args, i);
     const Y = price => bv.yOfPrice(args, price);
+    const chartHeight = ctx.canvas.height;
 
     ctx.save();
 
-    for (const s of v.sessions) {
+    for (let sIdx = 0; sIdx < v.sessions.length; sIdx++) {
+      const s = v.sessions[sIdx];
       if (s.endIndex < vis.from || s.startIndex > vis.to) continue;
 
       const barWidth = typeof bv.step === 'function' ? bv.step(args) : (bv.halfBar ? bv.halfBar(args) * 2 : 12);
       const x1 = X(s.startIndex);
       const x2 = X(s.endIndex) + barWidth;
+      if (!Number.isFinite(x1) || !Number.isFinite(x2)) continue;
+
+      // 1. Full-Height Vertical Column Tint
+      if (p.showFullColumn) {
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = 0.05;
+        ctx.fillRect(x1, 0, Math.max(2, x2 - x1), chartHeight);
+      }
+
+      // 2. High / Low Session Range Box
       const yHigh = Y(s.high);
       const yLow = Y(s.low);
+      if (Number.isFinite(yHigh) && Number.isFinite(yLow)) {
+        bv.box(args, {
+          fromIndex: s.startIndex,
+          toIndex: s.endIndex,
+          top: s.high,
+          bottom: s.low,
+          color: s.color,
+          fillOpacity: 0.08,
+          borderOpacity: 0.35,
+          under: true
+        });
+      }
 
-      if (![x1, x2, yHigh, yLow].every(Number.isFinite)) continue;
+      // 3. Top Canvas Ruler Ribbon Band
+      if (p.showTopRuler) {
+        const ribbonWidth = Math.max(50, x2 - x1);
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = s.color;
+        ctx.fillRect(x1, 0, ribbonWidth, 16);
 
-      // Draw session box
-      bv.box(args, {
-        fromIndex: s.startIndex,
-        toIndex: s.endIndex,
-        top: s.high,
-        bottom: s.low,
-        color: s.color,
-        fillOpacity: 0.08,
-        borderOpacity: 0.4,
-        under: true
-      });
-
-      // Label session
-      ctx.fillStyle = s.color;
-      ctx.font = 'bold 9px monospace';
-      ctx.fillText(s.label, Math.max(10, x1 + 4), yHigh - 4);
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 9px system-ui, sans-serif';
+        ctx.fillText(s.label, x1 + 4, 11);
+      }
     }
 
     ctx.restore();

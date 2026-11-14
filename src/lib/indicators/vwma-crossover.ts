@@ -1,12 +1,15 @@
 // Quantum Zero-Lag Volume-Weighted Moving Average (V-ZLEMA & SuperSmoother)
 // Eliminates phase lag using digital signal processing (DSP 2-Pole Gaussian filter)
 // Hugs price action closely while smoothing noise and filtering choppy false crosses.
+// Now includes a 200 EMA Macro-Trend Gate to suppress counter-trend signals.
 export const vwmaCrossoverInputs = [
   { id: 'length', name: 'Filter Period (Cutoff)', type: 'int', defval: 14, min: 5, max: 100, step: 1 },
   { id: 'minDivergence', name: 'Min Crossover Separation (ATR fraction)', type: 'float', defval: 0.15, min: 0.02, max: 1.0, step: 0.01 },
+  { id: 'trendGate', name: 'Macro Trend Gate (suppress counter-trend signals)', type: 'bool', defval: true },
+  { id: 'showCounterTrend', name: 'Show Counter-Trend Signals (dimmed)', type: 'bool', defval: true },
   { id: 'showVwma', name: 'Show Volume-Weighted Curve (Cyan)', type: 'bool', defval: true },
   { id: 'showEma', name: 'Show Price Baseline Curve (Amber)', type: 'bool', defval: true },
-  { id: 'showSignals', name: 'Show High-Probability Crossover Tags', type: 'bool', defval: true },
+  { id: 'showSignals', name: 'Show Crossover Tags', type: 'bool', defval: true },
   { id: 'showDivergence', name: 'Show Volume Pressure Cloud', type: 'bool', defval: true },
   { id: 'vwmaColor', name: 'VWMA Line Colour', type: 'color', defval: '#38bdf8', tab: 'style' },
   { id: 'emaColor', name: 'Baseline Line Colour', type: 'color', defval: '#fbbf24', tab: 'style' },
@@ -17,10 +20,13 @@ export const vwmaCrossoverInputs = [
 export const vwmaCrossoverScript = String.raw`
 // =====================================================================
 // Quantum Zero-Lag Volume Smoother (Ehlers 2-Pole SuperSmoother + ZLEMA)
+// + 200 EMA Macro-Trend Gate & Multi-Factor Signal Quality Grading
 // =====================================================================
 const defaults = {
   length: 14,
   minDivergence: 0.15,
+  trendGate: true,
+  showCounterTrend: true,
   showVwma: true,
   showEma: true,
   showSignals: true,
@@ -64,7 +70,24 @@ return {
       else if (atrPrev !== null) { atrPrev = (atrPrev * 13 + tr) / 14; atr[i] = atrPrev; }
     }
 
-    // 2. Relative Institutional Volume Proxy
+    // 2. 200 EMA for Macro-Trend Gate (same algorithm as macro-trend.ts)
+    const ema200 = new Array(n);
+    const ema50 = new Array(n);
+    const k200 = 2.0 / 201;
+    const k50 = 2.0 / 51;
+    let sum200 = 0, sum50 = 0;
+    for (let i = 0; i < n; i++) {
+      const cl = data[i].close;
+      if (i < 49) { sum50 += cl; }
+      else if (i === 49) { sum50 += cl; ema50[i] = sum50 / 50; }
+      else { ema50[i] = cl * k50 + ema50[i - 1] * (1 - k50); }
+
+      if (i < 199) { sum200 += cl; }
+      else if (i === 199) { sum200 += cl; ema200[i] = sum200 / 200; }
+      else { ema200[i] = cl * k200 + ema200[i - 1] * (1 - k200); }
+    }
+
+    // 3. Relative Institutional Volume Proxy
     const relVol = new Array(n).fill(1.0);
     const rawVols = new Array(n);
     let volSum = 0;
@@ -80,10 +103,8 @@ return {
       relVol[i] = avgV > 0 ? Math.max(0.4, Math.min(2.5, tv / avgV)) : 1.0;
     }
 
-    // 3. Zero-Lag Corrected Series
-    // Price baseline corrected for phase lag
+    // 4. Zero-Lag Corrected Series
     const zClose = new Array(n);
-    // Volume-boosted price (amplifies price momentum during heavy volume participation)
     const zVolPrice = new Array(n);
     for (let i = 0; i < n; i++) {
       const pastIdx = Math.max(0, i - lag);
@@ -92,7 +113,7 @@ return {
       zVolPrice[i] = data[i].close + momentum * (relVol[i] * 0.75);
     }
 
-    // 4. Apply Ehlers SuperSmoother Filter (smooth tracking that hugs the curve)
+    // 5. Apply Ehlers SuperSmoother Filter
     const { c1, c2, c3 } = getSuperSmootherCoeffs(len);
     const emaCurve = new Array(n);
     const vwmaCurve = new Array(n);
@@ -103,14 +124,11 @@ return {
     vwmaCurve[1] = data[1].close;
 
     for (let i = 2; i < n; i++) {
-      // Baseline price smoother
       emaCurve[i] = c1 * (zClose[i] + zClose[i - 1]) * 0.5 + c2 * emaCurve[i - 1] + c3 * emaCurve[i - 2];
-      // Volume-weighted adaptive smoother
       vwmaCurve[i] = c1 * (zVolPrice[i] + zVolPrice[i - 1]) * 0.5 + c2 * vwmaCurve[i - 1] + c3 * vwmaCurve[i - 2];
     }
 
-    // 5. High-Probability Hysteresis Crossover Detection
-    // Filters out 1-pip flat oscillations; only triggers on real momentum transitions
+    // 6. Multi-Factor Signal Quality Classification + Macro Trend Gate
     const signals = [];
     let lastSignalDir = 0;
     let barsSinceSignal = 999;
@@ -125,39 +143,66 @@ return {
       const diff1 = v1 - e1;
       const threshold = minDiv * (atr[i] || 1.0);
 
-      // Bullish Cross: transitioned from negative separation to positive separation >= threshold
       const isBullCross = (diff0 <= 0 && diff1 > 0) || (diff0 < threshold && diff1 >= threshold);
-      // Bearish Cross: transitioned from positive separation to negative separation <= -threshold
       const isBearCross = (diff0 >= 0 && diff1 < 0) || (diff0 > -threshold && diff1 <= -threshold);
 
-      if (isBullCross && lastSignalDir !== 1 && barsSinceSignal >= 4) {
-        lastSignalDir = 1;
-        barsSinceSignal = 0;
-        signals.push({
-          bar: i,
-          price: data[i].low,
-          dir: 1,
-          text: 'VWMA ▲ CROSS',
-          diff: diff1
-        });
-      } else if (isBearCross && lastSignalDir !== -1 && barsSinceSignal >= 4) {
-        lastSignalDir = -1;
-        barsSinceSignal = 0;
-        signals.push({
-          bar: i,
-          price: data[i].high,
-          dir: -1,
-          text: 'VWMA ▼ CROSS',
-          diff: diff1
-        });
+      if (!isBullCross && !isBearCross) continue;
+      if (isBullCross && lastSignalDir === 1) continue;
+      if (isBearCross && lastSignalDir === -1) continue;
+      if (barsSinceSignal < 4) continue;
+
+      const dir = isBullCross ? 1 : -1;
+
+      // ---- Signal Quality Grading ----
+      let quality = 0; // 0 = counter-trend (suppress), 1 = weak, 2 = moderate, 3 = high
+      const close = data[i].close;
+      const e200 = ema200[i];
+      const e50i = ema50[i];
+      const atrVal = atr[i] || 1.0;
+
+      // Factor 1: Macro trend alignment (close vs 200 EMA)
+      const aboveMacro = e200 !== undefined && close > e200;
+      const belowMacro = e200 !== undefined && close < e200;
+      const trendAligned = (dir === 1 && aboveMacro) || (dir === -1 && belowMacro);
+      const counterTrend = (dir === 1 && belowMacro) || (dir === -1 && aboveMacro);
+
+      if (trendAligned) quality += 1;
+
+      // Factor 2: 50 EMA slope agreement (momentum confirmation)
+      if (e50i !== undefined && ema50[Math.max(0, i - 5)] !== undefined) {
+        const slope50 = e50i - ema50[Math.max(0, i - 5)];
+        if ((dir === 1 && slope50 > 0) || (dir === -1 && slope50 < 0)) quality += 1;
       }
+
+      // Factor 3: Volume surge (relative volume > 1.3x average)
+      if (relVol[i] > 1.3) quality += 1;
+
+      // Classify
+      let grade = 'LOW';
+      if (quality >= 3) grade = 'HIGH';
+      else if (quality >= 2) grade = 'MED';
+      else if (counterTrend) grade = 'CTR';  // counter-trend
+
+      lastSignalDir = dir;
+      barsSinceSignal = 0;
+
+      signals.push({
+        bar: i,
+        price: dir === 1 ? data[i].low : data[i].high,
+        dir,
+        grade,
+        quality,
+        counterTrend,
+        trendAligned,
+        diff: diff1
+      });
     }
 
     indicator._vwmaStudy = {
       p,
       ema: emaCurve,
       vwma: vwmaCurve,
-      signals: signals.slice(-30),
+      signals,
       n
     };
     return rows;
@@ -236,21 +281,57 @@ return {
       ctx.stroke();
     }
 
-    // 4. Draw High-Probability Crossover Signals
+    // 4. Draw Crossover Signals with Quality Grading
     if (p.showSignals) {
       for (const s of v.signals) {
         if (s.bar < from || s.bar > to) continue;
         const isBuy = s.dir === 1;
-        const color = isBuy ? p.bullSignalColor : p.bearSignalColor;
+
+        // Macro Trend Gate: suppress or dim counter-trend signals
+        if (p.trendGate && s.counterTrend) {
+          if (!p.showCounterTrend) continue; // completely hidden
+          // Draw dimmed counter-trend signal
+          const arrow = isBuy ? '\u25B2' : '\u25BC';
+          bv.label(args, {
+            index: s.bar,
+            price: s.price,
+            text: arrow + ' CTR',
+            color: 'rgba(255,255,255,0.35)',
+            background: 'rgba(100,116,139,0.4)',
+            align: 'center',
+            baseline: isBuy ? 'top' : 'bottom',
+            size: 8,
+            padding: 2,
+            offsetY: isBuy ? 16 : -16
+          });
+          continue;
+        }
+
+        // Quality-graded with-trend signal
+        const baseColor = isBuy ? p.bullSignalColor : p.bearSignalColor;
+        let text = '';
+        let bgColor = baseColor;
+        let textSize = 9;
+
+        if (s.grade === 'HIGH') {
+          text = (isBuy ? '\u25B2 HIGH' : '\u25BC HIGH');
+          textSize = 10;
+        } else if (s.grade === 'MED') {
+          text = (isBuy ? '\u25B2 MED' : '\u25BC MED');
+        } else {
+          text = (isBuy ? '\u25B2 LOW' : '\u25BC LOW');
+          bgColor = 'rgba(100,116,139,0.6)';
+        }
+
         bv.label(args, {
           index: s.bar,
           price: s.price,
-          text: s.text,
+          text,
           color: '#fff',
-          background: color,
+          background: bgColor,
           align: 'center',
           baseline: isBuy ? 'top' : 'bottom',
-          size: 9,
+          size: textSize,
           padding: 3,
           offsetY: isBuy ? 16 : -16
         });
