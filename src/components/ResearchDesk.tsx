@@ -20,6 +20,7 @@ import {
   Settings,
   Sliders,
   Eye,
+  BarChart3,
 } from "lucide-react";
 import { IndicatorEditor, type IndicatorProgram } from "./IndicatorEditor";
 import type { Plan } from "@/lib/replay";
@@ -36,6 +37,7 @@ import { KeyZoneSuggestionCard } from "./KeyZoneSuggestionCard";
 import type { IndicatorInput } from "./IndicatorEditor";
 import { TradeProgressGauge, type TradeSetup } from "./TradeProgressGauge";
 import { OptimizationModal, type OptimizationCandidate } from "./OptimizationModal";
+import { CorrelationMatrixModal } from "./CorrelationMatrixModal";
 
 type Bar = { time: number; open: number; high: number; low: number; close: number };
 type Metric = { bull: number; bear: number; max: number; explanation: string };
@@ -65,6 +67,23 @@ type Result = {
   ote_confluence?: number;
   last_hi?: number | null;
   last_lo?: number | null;
+  regime?: string;
+  sub_phase?: string;
+  regime_confidence?: number;
+  vwma?: number | null;
+  vwma_crossover?: number;
+  vwma_divergence?: number;
+  pre_reactive_signal?: {
+    direction: number;
+    action: string;
+    setup: string;
+    entry: number;
+    sl: number;
+    tp: number;
+    rr: number;
+    probability: number;
+    confluences: string[];
+  } | null;
   metrics: Record<string, Metric>;
   zones: Zone[];
   conflict: boolean;
@@ -80,6 +99,12 @@ type Perf = {
   tradeList?: TradeSetup[];
   excluded?: Record<string, number>;
 };
+type CorrelationPayload = {
+  global_correlations: Record<string, number>;
+  regime_correlations: Record<string, Record<string, number>>;
+  signal_accuracy: Record<string, Record<string, { accuracy: number; total: number; direction_matches: number }>>;
+  best_combinations: Array<{ indicators: string[]; regime: string; accuracy: number; total_signals: number; avg_winner_return: number }>;
+};
 type Data = {
   runId: string;
   olderAdded: number;
@@ -92,6 +117,7 @@ type Data = {
   results: Result[];
   backtest: Record<string, Perf>;
   optimization?: OptimizationCandidate[] | null;
+  correlations?: CorrelationPayload | null;
   warning: string;
 };
 
@@ -471,6 +497,10 @@ export function ResearchDesk() {
   const [filterNews, setFilterNews] = useState(true);
   const [filterOte, setFilterOte] = useState(false);
   const [filterOb, setFilterOb] = useState(false);
+  const [filterRegime, setFilterRegime] = useState(false);
+  const [filterVwma, setFilterVwma] = useState(false);
+  const [correlationModalOpen, setCorrelationModalOpen] = useState(false);
+  const [correlationLoading, setCorrelationLoading] = useState(false);
 
   useEffect(() => {
     if (preset === "no-wick" && typeof program?.inputs.intLen === "number" && typeof program.inputs.extLen === "number") {
@@ -551,6 +581,8 @@ export function ResearchDesk() {
           filterNews,
           filterOte,
           filterOb,
+          filterRegime,
+          filterVwma,
         }),
       });
       const value = await res.json();
@@ -585,6 +617,8 @@ export function ResearchDesk() {
     filterNews,
     filterOte,
     filterOb,
+    filterRegime,
+    filterVwma,
   ]);
 
   const runOptimizer = useCallback(async () => {
@@ -627,6 +661,8 @@ export function ResearchDesk() {
       if (presetCandidate.filter_news !== undefined) setFilterNews(presetCandidate.filter_news);
       if (presetCandidate.filter_ote !== undefined) setFilterOte(presetCandidate.filter_ote);
       if (presetCandidate.filter_ob !== undefined) setFilterOb(presetCandidate.filter_ob);
+      if (presetCandidate.filter_regime !== undefined) setFilterRegime(presetCandidate.filter_regime);
+      if (presetCandidate.filter_vwma !== undefined) setFilterVwma(presetCandidate.filter_vwma);
 
       // Automatically sync visual indicators on the chart
       const nextActive = new Set(activeIndicators);
@@ -634,6 +670,8 @@ export function ResearchDesk() {
       if (presetCandidate.filter_killzone) nextActive.add("killzones");
       if (presetCandidate.filter_news) nextActive.add("news-filter");
       if (presetCandidate.filter_ote || presetCandidate.filter_ob) nextActive.add("key-levels");
+      if (presetCandidate.filter_regime) nextActive.add("market-regime");
+      if (presetCandidate.filter_vwma) nextActive.add("vwma-crossover");
       nextActive.add("fvg-reaction");
       setActiveIndicators(Array.from(nextActive));
 
@@ -652,6 +690,8 @@ export function ResearchDesk() {
       filter_ote: boolean;
       filter_ob: boolean;
       require_pattern: boolean;
+      filter_regime: boolean;
+      filter_vwma: boolean;
     }) => {
       setFilterTrend(filters.filter_trend);
       setFilterKillzone(filters.filter_killzone);
@@ -659,6 +699,8 @@ export function ResearchDesk() {
       setFilterOte(filters.filter_ote);
       setFilterOb(filters.filter_ob);
       setRequirePattern(filters.require_pattern);
+      setFilterRegime(filters.filter_regime);
+      setFilterVwma(filters.filter_vwma);
 
       const nextActive = new Set<string>();
       nextActive.add("fvg-reaction");
@@ -666,8 +708,89 @@ export function ResearchDesk() {
       if (filters.filter_killzone) nextActive.add("killzones");
       if (filters.filter_news) nextActive.add("news-filter");
       if (filters.filter_ote || filters.filter_ob) nextActive.add("key-levels");
+      if (filters.filter_regime) nextActive.add("market-regime");
+      if (filters.filter_vwma) nextActive.add("vwma-crossover");
       setActiveIndicators(Array.from(nextActive));
 
+      setTimeout(() => {
+        void load();
+      }, 50);
+    },
+    [load]
+  );
+
+  const runCorrelationAnalysis = useCallback(async () => {
+    setCorrelationModalOpen(true);
+    setCorrelationLoading(true);
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          minutes,
+          count: Math.max(1000, count),
+          weights,
+          action: "correlations",
+          cost,
+        }),
+      });
+      const value = await res.json();
+      if (!res.ok) throw Error(value.error || "Correlation analysis failed.");
+      if (value.correlations) {
+        setData((prev) => (prev ? { ...prev, correlations: value.correlations } : null));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Correlation study failed");
+    } finally {
+      setCorrelationLoading(false);
+    }
+  }, [source, minutes, count, weights, cost]);
+
+  const applyCorrelationCombination = useCallback(
+    (indicators: string[], regime?: string) => {
+      const nextActive = new Set<string>();
+      nextActive.add("fvg-reaction");
+
+      let useTrend = false;
+      let useKillzone = false;
+      let useOte = false;
+      let useOb = false;
+      let useReg = regime !== "all" && regime !== undefined;
+      let useVw = false;
+
+      for (const ind of indicators) {
+        if (ind === "trend_200ema") {
+          useTrend = true;
+          nextActive.add("macro-trend");
+        } else if (ind === "killzone") {
+          useKillzone = true;
+          nextActive.add("killzones");
+        } else if (ind === "ote") {
+          useOte = true;
+          nextActive.add("key-levels");
+        } else if (ind === "order_block") {
+          useOb = true;
+          nextActive.add("key-levels");
+        } else if (ind.includes("vwma")) {
+          useVw = true;
+          nextActive.add("vwma-crossover");
+        } else if (ind.includes("regime")) {
+          useReg = true;
+          nextActive.add("market-regime");
+        }
+      }
+
+      if (useReg) nextActive.add("market-regime");
+      setFilterTrend(useTrend);
+      setFilterKillzone(useKillzone);
+      setFilterOte(useOte);
+      setFilterOb(useOb);
+      setFilterRegime(useReg);
+      setFilterVwma(useVw);
+      setFilterNews(true);
+
+      setActiveIndicators(Array.from(nextActive));
       setTimeout(() => {
         void load();
       }, 50);
@@ -872,6 +995,13 @@ export function ResearchDesk() {
         onApply={applyOptimizationPreset}
         onRunCustomCombination={handleCustomCombination}
       />
+      <CorrelationMatrixModal
+        open={correlationModalOpen}
+        loading={correlationLoading}
+        data={data?.correlations || null}
+        onClose={() => setCorrelationModalOpen(false)}
+        onApplyCombination={applyCorrelationCombination}
+      />
 
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -949,6 +1079,15 @@ export function ResearchDesk() {
           className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/25 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-40"
         >
           <Sparkles size={14} /> One-Button Optimizer
+        </button>
+
+        {/* STATISTICAL CONFLUENCE & CORRELATION MATRIX BUTTON */}
+        <button
+          onClick={runCorrelationAnalysis}
+          disabled={loading || !data}
+          className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-cyan-600 to-cyan-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-cyan-600/25 hover:from-cyan-500 hover:to-cyan-400 disabled:opacity-40"
+        >
+          <BarChart3 size={14} /> Confluence &amp; Regime Matrix
         </button>
 
         <button

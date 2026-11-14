@@ -102,8 +102,9 @@ return {
     for (const s of v.sessions) {
       if (s.endIndex < vis.from || s.startIndex > vis.to) continue;
 
+      const barWidth = typeof bv.step === 'function' ? bv.step(args) : (bv.halfBar ? bv.halfBar(args) * 2 : 12);
       const x1 = X(s.startIndex);
-      const x2 = X(s.endIndex) + (bv.step(args) || 12);
+      const x2 = X(s.endIndex) + barWidth;
       const yHigh = Y(s.high);
       const yLow = Y(s.low);
 

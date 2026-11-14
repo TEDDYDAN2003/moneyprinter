@@ -63,8 +63,8 @@ return {
     const X = i => bv.xOfIndex(args, i);
     const Y = price => bv.yOfPrice(args, price);
 
-    const from = Math.max(0, vis.from - 2);
-    const to = Math.min(v.fastEMA.length - 1, vis.to + 2);
+    const from = Math.max(0, Math.floor(vis.from) - 2);
+    const to = Math.min(v.fastEMA.length - 1, Math.ceil(vis.to) + 2);
 
     ctx.save();
 

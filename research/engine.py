@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 import math
 from candlesticks import detect_pattern
+from regimes import classify_regimes, vwma_ema_crossover
+from correlations import analyze_correlations
 
 DEFAULT_WEIGHTS = {
     'htf': 20,
@@ -40,6 +42,10 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
     k50 = 2.0 / 51.0
     k200 = 2.0 / 201.0
     news_blackout_until = -1
+    
+    # Precompute causal market regimes (Wyckoff) and VWMA-EMA volume divergence
+    regimes = classify_regimes(candles, atr_len=atr_len)
+    vwma_data = vwma_ema_crossover(candles, length=20)
     
     # Completed aggregates for MTF and HTF
     aggregates = {m: {'active': None, 'done': []} for m in (mtf_mult, htf_mult)}
@@ -203,6 +209,71 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
         pat_dir = pattern_data['direction'] if pattern_data else 0
         pat_conf = pattern_data['confidence'] if pattern_data else 0.5
         
+        # Current bar Wyckoff Regime & VWMA Divergence data
+        reg = regimes[i] if i < len(regimes) else {}
+        vw = vwma_data[i] if i < len(vwma_data) else {}
+        regime_label = reg.get('regime', 'consolidation')
+        regime_sub = reg.get('sub_phase', '')
+        regime_conf = reg.get('confidence', 0.5)
+        vw_cross = vw.get('crossover', 0)
+        vw_div = vw.get('divergence_strength', 0.0)
+        
+        # Pre-reactive Signal Generation:
+        # Detect early positioning BEFORE the major price reaction candle
+        pre_reactive = None
+        if not in_news_blackout and atr:
+            # 1. Pre-reactive Buy: Accumulation spring/test or VWMA surge at support
+            is_accum_early_buy = (regime_label == 'accumulation' and (vw_cross == 1 or vw_div > 0.35))
+            is_ob_early_buy = (touching_bull_ob and (vw_cross == 1 or cd == 1))
+            is_ote_early_buy = (ote_confluence == 1 and (vw_cross == 1 or ldir == 1))
+            
+            if is_accum_early_buy or is_ob_early_buy or is_ote_early_buy:
+                local_sl = min(c['low'], last_lo if last_lo else c['low']) - 0.25 * atr
+                target_tp = (last_hi if last_hi and last_hi > c['close'] + atr else c['close'] + 2.0 * abs(c['close'] - local_sl))
+                risk = max(1e-4, c['close'] - local_sl)
+                effective_rr = abs(target_tp - c['close']) / risk
+                pre_reactive = {
+                    'direction': 1,
+                    'action': 'EARLY BUY',
+                    'setup': 'Accumulation Spring / Volume Shift' if is_accum_early_buy else ('OB Retest Bounce' if is_ob_early_buy else 'OTE 0.705 Retracement'),
+                    'entry': round(c['close'], 2),
+                    'sl': round(local_sl, 2),
+                    'tp': round(target_tp, 2),
+                    'rr': round(effective_rr, 2),
+                    'probability': round(min(95, 60 + int(regime_conf * 20) + (10 if in_killzone else 0) + (10 if vw_cross == 1 else 0)), 0),
+                    'confluences': [
+                        f"Wyckoff Phase: {regime_label.capitalize()}" + (f" ({regime_sub})" if regime_sub else ""),
+                        "VWMA Volume Surge (Bullish Divergence)" if (vw_cross == 1 or vw_div > 0.3) else "Order Block / Support Test",
+                        "Killzone Active" if in_killzone else "Outside Killzone"
+                    ]
+                }
+            
+            # 2. Pre-reactive Sell: Distribution UTAD / manipulation or VWMA dump at resistance
+            is_dist_early_sell = (regime_label == 'distribution' and (vw_cross == -1 or vw_div < -0.35))
+            is_ob_early_sell = (touching_bear_ob and (vw_cross == -1 or cd == -1))
+            is_ote_early_sell = (ote_confluence == -1 and (vw_cross == -1 or ldir == -1))
+            
+            if is_dist_early_sell or is_ob_early_sell or is_ote_early_sell:
+                local_sl = max(c['high'], last_hi if last_hi else c['high']) + 0.25 * atr
+                target_tp = (last_lo if last_lo and last_lo < c['close'] - atr else c['close'] - 2.0 * abs(local_sl - c['close']))
+                risk = max(1e-4, local_sl - c['close'])
+                effective_rr = abs(c['close'] - target_tp) / risk
+                pre_reactive = {
+                    'direction': -1,
+                    'action': 'EARLY SELL',
+                    'setup': 'Distribution UTAD / Volume Dump' if is_dist_early_sell else ('Bearish OB Retest' if is_ob_early_sell else 'OTE 0.705 Short'),
+                    'entry': round(c['close'], 2),
+                    'sl': round(local_sl, 2),
+                    'tp': round(target_tp, 2),
+                    'rr': round(effective_rr, 2),
+                    'probability': round(min(95, 60 + int(regime_conf * 20) + (10 if in_killzone else 0) + (10 if vw_cross == -1 else 0)), 0),
+                    'confluences': [
+                        f"Wyckoff Phase: {regime_label.capitalize()}" + (f" ({regime_sub})" if regime_sub else ""),
+                        "VWMA Volume Dump (Bearish Divergence)" if (vw_cross == -1 or vw_div < -0.3) else "Order Block / Resistance Test",
+                        "Killzone Active" if in_killzone else "Outside Killzone"
+                    ]
+                }
+        
         def directional(d):
             return (1, 0) if d == 1 else ((0, 1) if d == -1 else (0.5, 0.5))
             
@@ -268,6 +339,13 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
             'ote_confluence': ote_confluence,
             'last_hi': last_hi,
             'last_lo': last_lo,
+            'regime': regime_label,
+            'sub_phase': regime_sub,
+            'regime_confidence': regime_conf,
+            'vwma': vw.get('vwma'),
+            'vwma_crossover': vw_cross,
+            'vwma_divergence': vw_div,
+            'pre_reactive_signal': pre_reactive,
             'metrics': {k: {'bull': round(v[0] * weights[k], 2), 'bear': round(v[1] * weights[k], 2), 'max': weights[k], 'explanation': v[2]} for k, v in metrics.items()},
             'zones': [dict(z) for z in zones[-20:]],
             'conflict': bool(mb and hb and mb != hb),
@@ -279,13 +357,14 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
 
 def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=None, cost=0.0, threshold=65,
              target_mode='structural', stop_mode='structural', min_rr=1.5, require_pattern=False,
-             filter_trend=False, filter_killzone=False, filter_news=True, filter_ote=False, filter_ob=False):
+             filter_trend=False, filter_killzone=False, filter_news=True, filter_ote=False, filter_ob=False,
+             filter_regime=False, filter_vwma=False):
     """
     Backtesting engine supporting:
     - Structural Take Profit: Previous swing highs (BSL) / swing lows (SSL)
     - Structural Stop Loss: Invalidation below/above the reaction FVG and local swing
     - Dynamic RR filtering: Only execute when structural RR >= min_rr
-    - Multi-indicator confluences: Macro Trend (200 EMA), ICT Killzones, News Filter, OTE 0.705, Order Blocks
+    - Multi-indicator confluences: Macro Trend (200 EMA), ICT Killzones, News Filter, OTE 0.705, Order Blocks, Wyckoff Regimes, VWMA
     - Full chronological splits (Train 60%, Validation 20%, Test 20%)
     """
     n = len(candles)
@@ -343,6 +422,31 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=None, co
             excluded[group]['indicator_filtered'] += 1
             i += 1
             continue
+            
+        # 7. Wyckoff Market Regime Filter (Accumulation for longs, Distribution for shorts, avoid Consolidation)
+        if filter_regime:
+            regime = r.get('regime', 'consolidation')
+            if d == 1 and regime not in ('accumulation', 'markup'):
+                excluded[group]['indicator_filtered'] += 1
+                i += 1
+                continue
+            elif d == -1 and regime not in ('distribution', 'markdown'):
+                excluded[group]['indicator_filtered'] += 1
+                i += 1
+                continue
+
+        # 8. VWMA Momentum Crossover / Volume Divergence Filter
+        if filter_vwma:
+            vw_cross = r.get('vwma_crossover', 0)
+            vw_div = r.get('vwma_divergence', 0.0)
+            if d == 1 and not (vw_cross == 1 or vw_div > 0.05):
+                excluded[group]['indicator_filtered'] += 1
+                i += 1
+                continue
+            elif d == -1 and not (vw_cross == -1 or vw_div < -0.05):
+                excluded[group]['indicator_filtered'] += 1
+                i += 1
+                continue
             
         entry = candles[i]['close']
         atr_val = r['atr']
@@ -423,7 +527,9 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=None, co
                 'rr': round(effective_rr, 2),
                 'outcome': out,
                 'r': round(value, 2),
-                'pattern': r.get('pattern', 'Standard')
+                'pattern': r.get('pattern', 'Standard'),
+                'regime': r.get('regime', 'consolidation'),
+                'setup': r.get('pre_reactive_signal', {}).get('setup', 'FVG Reaction') if r.get('pre_reactive_signal') else 'FVG Reaction'
             })
         else:
             excluded[group][out or 'timeout'] += 1
@@ -464,10 +570,10 @@ def optimize(candles, results, minutes=5, cost=0.0):
     across the 60% Train dataset and tests them on the 20% Validation held-out dataset.
     """
     candidates = [
-        # 1. Confluence: FVG + 200 EMA Macro Trend + News Filter
+        # 1. Institutional Pre-Reactive Confluence (Regime + VWMA Divergence + FVG + Trend)
         {
-            'name': 'FVG + Macro Trend (200 EMA)',
-            'indicators': ['FVG Reaction', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
+            'name': 'Institutional Pre-Reactive (Regime + VWMA + Trend)',
+            'indicators': ['Wyckoff Regime', 'VWMA × EMA Crossover', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
             'threshold': 65,
             'target_mode': 'structural',
             'stop_mode': 'structural',
@@ -479,12 +585,14 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': False,
             'filter_news': True,
             'filter_ote': False,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': True,
+            'filter_vwma': True
         },
-        # 2. Confluence: FVG + ICT Killzones + News Filter
+        # 2. Wyckoff Phase Sniper (Accumulation Long / Distribution Short + Killzones)
         {
-            'name': 'FVG + ICT Killzones (London & NY)',
-            'indicators': ['FVG Reaction', 'ICT Killzones', 'CPI/PPI News Filter'],
+            'name': 'Wyckoff Sniper (Regime + Killzones + News)',
+            'indicators': ['Wyckoff Regime', 'ICT Killzones', 'CPI/PPI News Filter'],
             'threshold': 65,
             'target_mode': 'structural',
             'stop_mode': 'structural',
@@ -496,9 +604,30 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': True,
             'filter_news': True,
             'filter_ote': False,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': True,
+            'filter_vwma': False
         },
-        # 3. Triple Confluence: FVG + Macro Trend + Killzones + News
+        # 3. VWMA Volume-Trend Rider (VWMA Crossover + 200 EMA Macro Trend)
+        {
+            'name': 'VWMA Volume-Trend Rider (VWMA + Trend + News)',
+            'indicators': ['VWMA × EMA Crossover', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 1.6,
+            'rr': 1.6,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': True,
+            'filter_killzone': False,
+            'filter_news': True,
+            'filter_ote': False,
+            'filter_ob': False,
+            'filter_regime': False,
+            'filter_vwma': True
+        },
+        # 4. Triple Confluence: FVG + Macro Trend + Killzones + News
         {
             'name': 'Triple Confluence: FVG + Trend + Killzones',
             'indicators': ['FVG Reaction', '200 EMA Macro Trend', 'ICT Killzones', 'CPI/PPI News Filter'],
@@ -513,9 +642,11 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': True,
             'filter_news': True,
             'filter_ote': False,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': False,
+            'filter_vwma': False
         },
-        # 4. Institutional Quad Confluence: FVG + Trend + Key Levels (OTE / OB) + News
+        # 5. Full ICT Edge (FVG + Key Levels + Trend + News)
         {
             'name': 'Full ICT Edge (FVG + Key Levels + Trend + News)',
             'indicators': ['FVG Reaction', 'Key Levels (OTE/OB)', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
@@ -530,9 +661,11 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': False,
             'filter_news': True,
             'filter_ote': True,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': False,
+            'filter_vwma': False
         },
-        # 5. Candlestick Confirmed: FVG + Candlestick Reversal + Killzones
+        # 6. Killzone Sniper (Candlestick + FVG + Killzone)
         {
             'name': 'Killzone Sniper (Candlestick + FVG + Killzone)',
             'indicators': ['FVG Reaction', 'Candlestick Reversal', 'ICT Killzones'],
@@ -547,9 +680,11 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': True,
             'filter_news': True,
             'filter_ote': False,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': False,
+            'filter_vwma': False
         },
-        # 6. Baseline Raw FVG (For Comparison)
+        # 7. Raw FVG Baseline (No Additional Filters)
         {
             'name': 'Raw FVG Baseline (No Additional Filters)',
             'indicators': ['FVG Reaction'],
@@ -564,7 +699,9 @@ def optimize(candles, results, minutes=5, cost=0.0):
             'filter_killzone': False,
             'filter_news': False,
             'filter_ote': False,
-            'filter_ob': False
+            'filter_ob': False,
+            'filter_regime': False,
+            'filter_vwma': False
         }
     ]
     
@@ -576,7 +713,8 @@ def optimize(candles, results, minutes=5, cost=0.0):
             threshold=c['threshold'], cost=cost, target_mode=c['target_mode'],
             stop_mode=c['stop_mode'], min_rr=c['min_rr'], require_pattern=c['require_pattern'],
             filter_trend=c['filter_trend'], filter_killzone=c['filter_killzone'],
-            filter_news=c['filter_news'], filter_ote=c['filter_ote'], filter_ob=c['filter_ob']
+            filter_news=c['filter_news'], filter_ote=c['filter_ote'], filter_ob=c['filter_ob'],
+            filter_regime=c.get('filter_regime', False), filter_vwma=c.get('filter_vwma', False)
         )
         tr = bt['Train']
         val = bt['Validation']
@@ -598,3 +736,12 @@ def optimize(candles, results, minutes=5, cost=0.0):
             
     scored.sort(key=lambda x: (x['valExp'], x['trainExp']), reverse=True)
     return scored
+
+def run_correlation_study(candles, results, forward_bars=20):
+    """
+    Computes statistical correlations between each indicator signal and future N-bar price returns,
+    both globally and segmented by market regime (Accumulation, Markup, Distribution, Markdown, Consolidation).
+    """
+    regimes = classify_regimes(candles)
+    vwma_data = vwma_ema_crossover(candles)
+    return analyze_correlations(candles, results, regimes, vwma_data, forward_bars=forward_bars)

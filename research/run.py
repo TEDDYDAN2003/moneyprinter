@@ -2,7 +2,7 @@
 """Local-only JSON bridge. Never returns credentials."""
 import os,sys,json,random,urllib.request,urllib.error,urllib.parse,math,sqlite3,hashlib,uuid,re
 from datetime import datetime,timezone
-from engine import analyze,backtest,optimize
+from engine import analyze,backtest,optimize,run_correlation_study
 
 def sample(minutes,count):
     random.seed(42); start=1704067200; p=2050.; rows=[]
@@ -126,8 +126,11 @@ def main():
     filter_news=bool(req.get('filterNews',True))
     filter_ote=bool(req.get('filterOte',False))
     filter_ob=bool(req.get('filterOb',False))
-    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=cost_val,threshold=max(50,min(100,float(req.get('threshold',65)))),target_mode=target_mode,stop_mode=stop_mode,min_rr=min_rr,require_pattern=require_pattern,filter_trend=filter_trend,filter_killzone=filter_killzone,filter_news=filter_news,filter_ote=filter_ote,filter_ob=filter_ob) if available else {}
+    filter_regime=bool(req.get('filterRegime',False))
+    filter_vwma=bool(req.get('filterVwma',False))
+    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=cost_val,threshold=max(50,min(100,float(req.get('threshold',65)))),target_mode=target_mode,stop_mode=stop_mode,min_rr=min_rr,require_pattern=require_pattern,filter_trend=filter_trend,filter_killzone=filter_killzone,filter_news=filter_news,filter_ote=filter_ote,filter_ob=filter_ob,filter_regime=filter_regime,filter_vwma=filter_vwma) if available else {}
     opt=optimize(bars,results,minutes=minutes,cost=cost_val) if (available and (req.get('action')=='optimize' or req.get('optimize') is True)) else None
+    corr=run_correlation_study(bars,results) if (available and (req.get('action') in ('correlations','optimize') or req.get('correlations') is True)) else None
     note=(f'{minutes}m is derived from complete {base_minutes}m candles aligned to UTC; incomplete groups are excluded. ' if minutes in (3,45) and source=='oanda' else '')+('Daily/weekly: chart only; scores, backtesting and indicators are disabled until calendar-aware support is implemented. OANDA bars use New York 17:00 and Friday weekly alignment. ' if not available else '')
     # Persist the exact candle snapshot, parameters and every score locally.
     # No API token or full process environment enters the database.
@@ -137,7 +140,7 @@ def main():
         db.execute('CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, created_utc TEXT, source TEXT, symbol TEXT, minutes INTEGER, data_sha256 TEXT, settings TEXT, candles TEXT, results TEXT, backtest TEXT)')
         db.execute('INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)',(run_id,datetime.now(timezone.utc).isoformat(),source,'XAU_USD',minutes,digest,json.dumps(req),snapshot,json.dumps(results,separators=(',',':')),json.dumps(bt)))
     db.close()
-    print(json.dumps({'runId':run_id,'dataHash':digest,'olderAdded':older_count,'historyExhausted':history_exhausted,'analysisAvailable':available,'source':source,'symbol':'XAU_USD','minutes':minutes,'candles':bars,'results':results,'backtest':bt,'optimization':opt,'warning':note+('Synthetic example data, not market prices.' if source=='sample' else ('OANDA midpoint candles; provider quotes may differ from Exness. Verify timestamps and completeness.'+(f' Only {len(bars)} of {count} requested candles were available.' if mode=='initial' and len(bars)<count else '')))},allow_nan=False))
+    print(json.dumps({'runId':run_id,'dataHash':digest,'olderAdded':older_count,'historyExhausted':history_exhausted,'analysisAvailable':available,'source':source,'symbol':'XAU_USD','minutes':minutes,'candles':bars,'results':results,'backtest':bt,'optimization':opt,'correlations':corr,'warning':note+('Synthetic example data, not market prices.' if source=='sample' else ('OANDA midpoint candles; provider quotes may differ from Exness. Verify timestamps and completeness.'+(f' Only {len(bars)} of {count} requested candles were available.' if mode=='initial' and len(bars)<count else '')))},allow_nan=False))
 if __name__=='__main__':
     try:main()
     except Exception as e:print(json.dumps({'error':str(e)}));sys.exit(1)

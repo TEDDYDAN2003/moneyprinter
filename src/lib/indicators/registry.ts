@@ -4,6 +4,8 @@ import { macroTrendInputs, macroTrendScript } from './macro-trend';
 import { killzonesInputs, killzonesScript } from './killzones';
 import { newsFilterInputs, newsFilterScript } from './news-filter';
 import { noWickInputs, noWickScript } from './no-wick';
+import { marketRegimeInputs, marketRegimeScript } from './market-regime';
+import { vwmaCrossoverInputs, vwmaCrossoverScript } from './vwma-crossover';
 import type { IndicatorInput, IndicatorProgram } from '@/components/IndicatorEditor';
 
 export interface IndicatorDefinition {
@@ -43,6 +45,24 @@ export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
     description: '50 EMA and 200 EMA institutional trend regime ribbon to filter counter-trend signals.',
     inputs: macroTrendInputs as IndicatorInput[],
     script: macroTrendScript
+  },
+  {
+    id: 'market-regime',
+    name: 'Market Regime (Wyckoff)',
+    tag: 'Accum/Dist/Trend',
+    color: '#22d3ee',
+    description: 'Classifies price action into Wyckoff phases: Accumulation, Markup, Distribution, Markdown, Consolidation.',
+    inputs: marketRegimeInputs as IndicatorInput[],
+    script: marketRegimeScript
+  },
+  {
+    id: 'vwma-crossover',
+    name: 'VWMA × EMA Crossover',
+    tag: 'Volume Divergence',
+    color: '#eab308',
+    description: 'Volume-weighted momentum crossover & divergence. Detects institutional volume shifts before breakout.',
+    inputs: vwmaCrossoverInputs as IndicatorInput[],
+    script: vwmaCrossoverScript
   },
   {
     id: 'killzones',

@@ -18,6 +18,8 @@ export type OptimizationCandidate = {
   filter_news?: boolean;
   filter_ote?: boolean;
   filter_ob?: boolean;
+  filter_regime?: boolean;
+  filter_vwma?: boolean;
   trainTrades: number;
   trainWinRate: number;
   trainNetR: number;
@@ -42,6 +44,8 @@ interface OptimizationModalProps {
     filter_ote: boolean;
     filter_ob: boolean;
     require_pattern: boolean;
+    filter_regime: boolean;
+    filter_vwma: boolean;
   }) => void;
 }
 
@@ -55,6 +59,8 @@ export function OptimizationModal({ open, loading, candidates, onClose, onApply,
   const [useOte, setUseOte] = useState(false);
   const [useOb, setUseOb] = useState(false);
   const [usePattern, setUsePattern] = useState(false);
+  const [useRegime, setUseRegime] = useState(true);
+  const [useVwma, setUseVwma] = useState(true);
 
   if (!open) return null;
 
@@ -206,6 +212,31 @@ export function OptimizationModal({ open, loading, candidates, onClose, onApply,
                       <span className="text-[11px] text-slate-400">Requires Hammer, Engulfing, or Morning/Evening Star confirmation at entry.</span>
                     </div>
                   </label>
+                  <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-[#0c121d] p-3 cursor-pointer hover:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={useRegime}
+                      onChange={(e) => setUseRegime(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-indigo-500 focus:ring-0"
+                    />
+                    <div>
+                      <span className="font-semibold text-white block">Wyckoff Market Regime Filter</span>
+                      <span className="text-[11px] text-slate-400">Only long in Accumulation/Markup; only short in Distribution/Markdown. Avoids consolidation chop.</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-[#0c121d] p-3 cursor-pointer hover:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={useVwma}
+                      onChange={(e) => setUseVwma(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-indigo-500 focus:ring-0"
+                    />
+                    <div>
+                      <span className="font-semibold text-white block">VWMA × EMA Volume Shift (Pre-Reactive)</span>
+                      <span className="text-[11px] text-slate-400">Requires volume-weighted moving average momentum alignment before candle leaves key zone.</span>
+                    </div>
+                  </label>
                 </div>
 
                 <div className="mt-5 flex justify-end">
@@ -220,6 +251,8 @@ export function OptimizationModal({ open, loading, candidates, onClose, onApply,
                           filter_ote: useOte,
                           filter_ob: useOb,
                           require_pattern: usePattern,
+                          filter_regime: useRegime,
+                          filter_vwma: useVwma,
                         });
                       }
                       onClose();
