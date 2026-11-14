@@ -12,9 +12,10 @@ def sample(minutes,count):
     return rows
 
 def oanda(minutes,count):
-    token=os.environ.get('OANDA_API_TOKEN','')
+    token=os.environ.get('OANDA_API_TOKEN','').strip().strip("'").strip('"')
     if not token:raise ValueError('Set OANDA_API_TOKEN in your local environment. Use a newly rotated token, not the one shared in chat.')
     gran={5:'M5',15:'M15',60:'H1'}[minutes]
+    headers={'Authorization':'Bearer '+token,'User-Agent':'MoneyPrinter-Research/1.0','Accept':'application/json'}
     # Walk backward by the oldest returned candle. A page can include its
     # boundary, so deduplicate by timestamp and request one extra if needed.
     rows_by_time={};cursor=None;page_count=0
@@ -23,10 +24,24 @@ def oanda(minutes,count):
         params={'price':'M','granularity':gran,'count':requested}
         if cursor:params['to']=cursor
         url='https://api-fxpractice.oanda.com/v3/instruments/XAU_USD/candles?'+urllib.parse.urlencode(params)
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url,headers={'Authorization':'Bearer '+token}),timeout=25) as res:payload=json.load(res)
-        except urllib.error.HTTPError as e:raise ValueError(f'OANDA request failed on page {page_count+1} (HTTP {e.code}); no partial run was saved.')
-        except Exception:raise ValueError(f'Could not reach OANDA on page {page_count+1}; no partial run was saved.')
+        payload=None
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=25) as res:
+                    raw=res.read()
+                    payload=json.loads(raw if isinstance(raw,str) else raw.decode('utf-8'))
+                    break
+            except urllib.error.HTTPError as e:
+                if attempt==0 and e.code in (401,429,500,502,503,504):
+                    import time; time.sleep(1)
+                    continue
+                raise ValueError(f'OANDA request failed on page {page_count+1} (HTTP {e.code}); no partial run was saved.')
+            except Exception:
+                if attempt==0:
+                    import time; time.sleep(1)
+                    continue
+                raise ValueError(f'Could not reach OANDA on page {page_count+1}; no partial run was saved.')
+        if not payload:break
         page=payload.get('candles',[]);page_count+=1
         if not page:break
         before=len(rows_by_time);oldest=None;oldest_raw=None
