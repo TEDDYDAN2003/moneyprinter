@@ -121,7 +121,12 @@ def main():
     min_rr=max(0.5,min(10.0,float(req.get('minRr',1.5))))
     require_pattern=bool(req.get('requirePattern',False))
     cost_val=max(0,min(100,float(req.get('cost',0))))
-    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=cost_val,threshold=max(50,min(100,float(req.get('threshold',65)))),target_mode=target_mode,stop_mode=stop_mode,min_rr=min_rr,require_pattern=require_pattern) if available else {}
+    filter_trend=bool(req.get('filterTrend',False))
+    filter_killzone=bool(req.get('filterKillzone',False))
+    filter_news=bool(req.get('filterNews',True))
+    filter_ote=bool(req.get('filterOte',False))
+    filter_ob=bool(req.get('filterOb',False))
+    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=cost_val,threshold=max(50,min(100,float(req.get('threshold',65)))),target_mode=target_mode,stop_mode=stop_mode,min_rr=min_rr,require_pattern=require_pattern,filter_trend=filter_trend,filter_killzone=filter_killzone,filter_news=filter_news,filter_ote=filter_ote,filter_ob=filter_ob) if available else {}
     opt=optimize(bars,results,minutes=minutes,cost=cost_val) if (available and (req.get('action')=='optimize' or req.get('optimize') is True)) else None
     note=(f'{minutes}m is derived from complete {base_minutes}m candles aligned to UTC; incomplete groups are excluded. ' if minutes in (3,45) and source=='oanda' else '')+('Daily/weekly: chart only; scores, backtesting and indicators are disabled until calendar-aware support is implemented. OANDA bars use New York 17:00 and Friday weekly alignment. ' if not available else '')
     # Persist the exact candle snapshot, parameters and every score locally.

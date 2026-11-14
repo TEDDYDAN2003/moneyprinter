@@ -17,6 +17,9 @@ import {
   ShieldAlert,
   Sparkles,
   Zap,
+  Settings,
+  Sliders,
+  Eye,
 } from "lucide-react";
 import { IndicatorEditor, type IndicatorProgram } from "./IndicatorEditor";
 import type { Plan } from "@/lib/replay";
@@ -28,6 +31,8 @@ import { ReplayPanel } from "./ReplayPanel";
 import { IndicatorOverlay } from "./IndicatorOverlay";
 import { noWickInputs } from "@/lib/indicators/no-wick";
 import { fvgReactionInputs } from "@/lib/indicators/fvg-reaction";
+import { INDICATOR_REGISTRY, createDefaultProgram, type IndicatorDefinition } from "@/lib/indicators/registry";
+import { KeyZoneSuggestionCard } from "./KeyZoneSuggestionCard";
 import type { IndicatorInput } from "./IndicatorEditor";
 import { TradeProgressGauge, type TradeSetup } from "./TradeProgressGauge";
 import { OptimizationModal, type OptimizationCandidate } from "./OptimizationModal";
@@ -52,6 +57,14 @@ type Result = {
   pattern?: string;
   pattern_dir?: number;
   pattern_conf?: number;
+  trend_regime?: number;
+  in_killzone?: boolean;
+  is_news_shock?: boolean;
+  in_news_blackout?: boolean;
+  touching_ob?: number;
+  ote_confluence?: number;
+  last_hi?: number | null;
+  last_lo?: number | null;
   metrics: Record<string, Metric>;
   zones: Zone[];
   conflict: boolean;
@@ -114,7 +127,7 @@ function PriceChart({
   data,
   selected,
   onSelect,
-  program,
+  programs,
   onStatus,
   onViewport,
   restoreRef,
@@ -129,7 +142,7 @@ function PriceChart({
   data: Data;
   selected: number;
   onSelect: (n: number) => void;
-  program: IndicatorProgram | null;
+  programs: IndicatorProgram[];
   onStatus: (s: string) => void;
   onViewport: (range: LogicalViewport) => void;
   restoreRef: React.MutableRefObject<LogicalViewport | null>;
@@ -289,7 +302,7 @@ function PriceChart({
     for (const x of overlays.current) chart.removeSeries(x);
     overlays.current = [];
     const result = data.results[selected];
-    if (!result || program) return;
+    if (!result || programs.length > 0) return;
     for (const zone of result.zones.slice(-12))
       for (const price of [zone.top, zone.bottom]) {
         const s = chart.addLineSeries({
@@ -316,7 +329,7 @@ function PriceChart({
         );
         overlays.current.push(s);
       }
-  }, [selected, data, ready, program]);
+  }, [selected, data, ready, programs]);
 
   // Visual trade setup price lines (Entry, TP, SL)
   useEffect(() => {
@@ -377,16 +390,18 @@ function PriceChart({
   return (
     <div className="relative">
       <div ref={ref} className="w-full overflow-hidden rounded-b-2xl" />
-      {ready > 0 && program && chartRef.current && seriesRef.current && ref.current && (
-        <IndicatorOverlay
-          chart={chartRef.current}
-          series={seriesRef.current}
-          node={ref.current}
-          bars={data.candles}
-          program={program}
-          onStatus={onStatus}
-        />
-      )}
+      {ready > 0 && chartRef.current && seriesRef.current && ref.current &&
+        programs.map((p, idx) => (
+          <IndicatorOverlay
+            key={`${idx}-${p.revision}`}
+            chart={chartRef.current!}
+            series={seriesRef.current!}
+            node={ref.current!}
+            bars={data.candles}
+            program={p}
+            onStatus={onStatus}
+          />
+        ))}
       <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-slate-950/80 px-2 py-1 text-[10px] text-slate-400">
         Scroll to zoom · drag to pan · click candle · cyan/green/red lines show hypothetical entry, TP & SL
       </div>
@@ -429,10 +444,33 @@ export function ResearchDesk() {
   const [quickParams, setQuickParams] = useState(quickDefaults);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickSelected, setQuickSelected] = useState<number | null>(null);
-  const [program, setProgram] = useState<IndicatorProgram | null>(null);
+  // Multi-Indicator Suite State
+  const [activeIndicators, setActiveIndicators] = useState<string[]>(["fvg-reaction", "key-levels"]);
+  const [editingIndicatorId, setEditingIndicatorId] = useState<string | null>(null);
   const [indicatorStatus, setIndicatorStatus] = useState("");
-  const [preset, setPreset] = useState("none");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [indicatorPrograms, setIndicatorPrograms] = useState<Record<string, IndicatorProgram>>(() => {
+    const initialProgs: Record<string, IndicatorProgram> = {};
+    for (const def of INDICATOR_REGISTRY) {
+      initialProgs[def.id] = createDefaultProgram(def);
+    }
+    return initialProgs;
+  });
+
+  const activePrograms = useMemo(() => {
+    return activeIndicators.map((id) => indicatorPrograms[id]).filter(Boolean);
+  }, [activeIndicators, indicatorPrograms]);
+
+  const program = indicatorPrograms["fvg-reaction"] || null;
+  const preset = activeIndicators.includes("fvg-reaction")
+    ? "fvg-reaction"
+    : (activeIndicators.includes("no-wick") ? "no-wick" : "none");
+
+  // Indicator Confluence Filter Flags
+  const [filterTrend, setFilterTrend] = useState(false);
+  const [filterKillzone, setFilterKillzone] = useState(false);
+  const [filterNews, setFilterNews] = useState(true);
+  const [filterOte, setFilterOte] = useState(false);
+  const [filterOb, setFilterOb] = useState(false);
 
   useEffect(() => {
     if (preset === "no-wick" && typeof program?.inputs.intLen === "number" && typeof program.inputs.extLen === "number") {
@@ -508,6 +546,11 @@ export function ResearchDesk() {
           stopMode,
           minRr,
           requirePattern,
+          filterTrend,
+          filterKillzone,
+          filterNews,
+          filterOte,
+          filterOb,
         }),
       });
       const value = await res.json();
@@ -516,8 +559,6 @@ export function ResearchDesk() {
       setData(value);
       setSelected(value.candles.length - 1);
       if (!value.analysisAvailable) {
-        setProgram(null);
-        setPreset("none");
         setIndicatorStatus("");
       }
     } catch (e) {
@@ -525,7 +566,26 @@ export function ResearchDesk() {
     } finally {
       setLoading(false);
     }
-  }, [source, minutes, count, weights, threshold, rr, stopAtr, horizon, cost, targetMode, stopMode, minRr, requirePattern]);
+  }, [
+    source,
+    minutes,
+    count,
+    weights,
+    threshold,
+    rr,
+    stopAtr,
+    horizon,
+    cost,
+    targetMode,
+    stopMode,
+    minRr,
+    requirePattern,
+    filterTrend,
+    filterKillzone,
+    filterNews,
+    filterOte,
+    filterOb,
+  ]);
 
   const runOptimizer = useCallback(async () => {
     setOptOpen(true);
@@ -562,6 +622,52 @@ export function ResearchDesk() {
       setRr(presetCandidate.rr);
       setStopAtr(presetCandidate.stop_atr);
       setRequirePattern(presetCandidate.require_pattern);
+      if (presetCandidate.filter_trend !== undefined) setFilterTrend(presetCandidate.filter_trend);
+      if (presetCandidate.filter_killzone !== undefined) setFilterKillzone(presetCandidate.filter_killzone);
+      if (presetCandidate.filter_news !== undefined) setFilterNews(presetCandidate.filter_news);
+      if (presetCandidate.filter_ote !== undefined) setFilterOte(presetCandidate.filter_ote);
+      if (presetCandidate.filter_ob !== undefined) setFilterOb(presetCandidate.filter_ob);
+
+      // Automatically sync visual indicators on the chart
+      const nextActive = new Set(activeIndicators);
+      if (presetCandidate.filter_trend) nextActive.add("macro-trend");
+      if (presetCandidate.filter_killzone) nextActive.add("killzones");
+      if (presetCandidate.filter_news) nextActive.add("news-filter");
+      if (presetCandidate.filter_ote || presetCandidate.filter_ob) nextActive.add("key-levels");
+      nextActive.add("fvg-reaction");
+      setActiveIndicators(Array.from(nextActive));
+
+      setTimeout(() => {
+        void load();
+      }, 50);
+    },
+    [load, activeIndicators]
+  );
+
+  const handleCustomCombination = useCallback(
+    (filters: {
+      filter_trend: boolean;
+      filter_killzone: boolean;
+      filter_news: boolean;
+      filter_ote: boolean;
+      filter_ob: boolean;
+      require_pattern: boolean;
+    }) => {
+      setFilterTrend(filters.filter_trend);
+      setFilterKillzone(filters.filter_killzone);
+      setFilterNews(filters.filter_news);
+      setFilterOte(filters.filter_ote);
+      setFilterOb(filters.filter_ob);
+      setRequirePattern(filters.require_pattern);
+
+      const nextActive = new Set<string>();
+      nextActive.add("fvg-reaction");
+      if (filters.filter_trend) nextActive.add("macro-trend");
+      if (filters.filter_killzone) nextActive.add("killzones");
+      if (filters.filter_news) nextActive.add("news-filter");
+      if (filters.filter_ote || filters.filter_ob) nextActive.add("key-levels");
+      setActiveIndicators(Array.from(nextActive));
+
       setTimeout(() => {
         void load();
       }, 50);
@@ -764,6 +870,7 @@ export function ResearchDesk() {
         candidates={optCandidates}
         onClose={() => setOptOpen(false)}
         onApply={applyOptimizationPreset}
+        onRunCustomCombination={handleCustomCombination}
       />
 
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -890,28 +997,47 @@ export function ResearchDesk() {
                     {tfLabel(data.minutes)} · {replayCursor === null ? data.candles.length : replayCursor + 1} completed candles
                   </span>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-slate-400">
-                  Indicator{" "}
-                  <select
-                    aria-label="Select indicator"
-                    value={preset}
-                    disabled={!data.analysisAvailable}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setPreset(v);
-                      if (v === "none") {
-                        setProgram(null);
-                        setIndicatorStatus("Indicator removed");
-                      }
-                    }}
-                    className="rounded-lg border border-slate-700 bg-[#0b111a] px-2 py-1.5 text-xs text-slate-200"
-                  >
-                    <option value="none">None</option>
-                    <option value="fvg-reaction">FVG Reaction Study</option>
-                    <option value="no-wick">No-Wick Structure</option>
-                  </select>
-                </label>
-                {preset !== "none" && <span className="text-[10px] text-slate-400">{indicatorStatus}</span>}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 mr-1">
+                    <Layers size={13} /> Active Indicators:
+                  </span>
+                  {INDICATOR_REGISTRY.map((def) => {
+                    const isActive = activeIndicators.includes(def.id);
+                    return (
+                      <div key={def.id} className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveIndicators((prev) =>
+                              isActive ? prev.filter((id) => id !== def.id) : [...prev, def.id]
+                            );
+                          }}
+                          className={`flex items-center gap-1.5 rounded-l-lg border px-2.5 py-1 text-xs font-medium transition ${
+                            isActive
+                              ? "border-indigo-500/60 bg-indigo-950/60 text-white shadow-sm"
+                              : "border-slate-800 bg-[#0d141e] text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                          }`}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: isActive ? def.color : "#64748b" }}
+                          />
+                          {def.name}
+                        </button>
+                        {isActive && (
+                          <button
+                            type="button"
+                            title={`Configure ${def.name}`}
+                            onClick={() => setEditingIndicatorId(def.id)}
+                            className="rounded-r-lg border-y border-r border-indigo-500/60 bg-indigo-950/60 px-1.5 py-1 text-slate-400 hover:text-white"
+                          >
+                            <Settings size={12} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
                 <button
                   type="button"
@@ -958,7 +1084,7 @@ export function ResearchDesk() {
                   data={chartData!}
                   selected={selected}
                   onSelect={replayCursor === null ? setSelected : () => {}}
-                  program={program}
+                  programs={activePrograms}
                   onStatus={setIndicatorStatus}
                   onViewport={viewportChanged}
                   restoreRef={restoreRef}
@@ -980,115 +1106,95 @@ export function ResearchDesk() {
                     onPlan={setReplayPlan}
                     follow={replayFollow}
                     onFollowChange={setReplayFollow}
-                    compact={preset === "fvg-reaction" && clusterExpanded}
+                    compact={activeIndicators.includes("fvg-reaction") && clusterExpanded}
                     onClose={() => {
                       setReplayPlan(null);
                       setReplayOpen(false);
                     }}
                   />
                 )}
-                {["fvg-reaction", "no-wick"].includes(preset) && program && (
-                  <div className="absolute left-3 top-3 z-30">
-                    <div className="flex items-center gap-2 rounded-md bg-slate-950/90 px-3 py-2 text-xs text-slate-200">
-                      <span>{preset === "no-wick" ? "No-Wick Structure" : "FVG Reaction Study"}</span>
-                      {preset === "fvg-reaction" && (
-                        <button type="button" onClick={() => setQuickOpen(true)} className="rounded px-1 hover:bg-slate-700">
-                          Parameters
-                        </button>
-                      )}
+                {editingIndicatorId && (
+                  <div className="absolute left-3 top-3 z-40 max-h-[min(70vh,600px)] w-[min(92vw,360px)] overflow-auto rounded-xl border border-slate-700 bg-[#101722] p-4 shadow-2xl">
+                    <div className="mb-3 flex items-center justify-between text-sm font-semibold text-white">
+                      <span>{INDICATOR_REGISTRY.find((d) => d.id === editingIndicatorId)?.name} Settings</span>
                       <button
-                        type="button"
-                        aria-label={preset === "no-wick" ? "No-Wick Structure settings" : "FVG Reaction Study settings"}
-                        aria-expanded={settingsOpen}
-                        onClick={() => setSettingsOpen((v) => !v)}
-                        className="rounded px-1 hover:bg-slate-700"
-                      >
-                        ⚙ Settings
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={preset === "no-wick" ? "Remove No-Wick Structure" : "Remove FVG Reaction Study"}
-                        onClick={() => {
-                          setProgram(null);
-                          setPreset("none");
-                          setSettingsOpen(false);
-                        }}
-                        className="rounded px-1 hover:bg-slate-700"
+                        onClick={() => setEditingIndicatorId(null)}
+                        aria-label="Close indicator settings"
+                        className="rounded p-1 hover:bg-slate-800 text-slate-400 hover:text-white"
                       >
                         ✕
                       </button>
                     </div>
-                    {settingsOpen && (
-                      <div
-                        role="dialog"
-                        aria-label={preset === "no-wick" ? "No-Wick Structure settings" : "FVG Reaction Study settings"}
-                        className="mt-1 max-h-[min(70vh,600px)] w-[min(92vw,360px)] overflow-auto rounded-lg border border-slate-700 bg-[#101722] p-4 shadow-xl"
-                      >
-                        <div className="mb-3 flex justify-between text-sm font-semibold text-white">
-                          <span>Indicator settings</span>
-                          <button onClick={() => setSettingsOpen(false)} aria-label="Close indicator settings">
-                            ✕
-                          </button>
-                        </div>
-                        <div className="grid gap-3">
-                          {((preset === "no-wick" ? noWickInputs : fvgReactionInputs) as IndicatorInput[]).map((d) => (
-                            <label key={d.id} className="flex items-center justify-between gap-3 text-xs text-slate-300">
-                              <span>{d.name}</span>
-                              {d.type === "bool" ? (
-                                <input
-                                  type="checkbox"
-                                  checked={!!program.inputs[d.id]}
-                                  onChange={(e) =>
-                                    setProgram({
-                                      ...program,
-                                      inputs: { ...program.inputs, [d.id]: e.target.checked },
+                    <div className="grid gap-3">
+                      {(INDICATOR_REGISTRY.find((d) => d.id === editingIndicatorId)?.inputs || []).map((d) => {
+                        const prog = indicatorPrograms[editingIndicatorId];
+                        const val = prog?.inputs[d.id] ?? d.defval;
+                        return (
+                          <label key={d.id} className="flex items-center justify-between gap-3 text-xs text-slate-300">
+                            <span>{d.name}</span>
+                            {d.type === "bool" ? (
+                              <input
+                                type="checkbox"
+                                checked={!!val}
+                                onChange={(e) => {
+                                  setIndicatorPrograms((prev) => ({
+                                    ...prev,
+                                    [editingIndicatorId]: {
+                                      ...prev[editingIndicatorId],
+                                      inputs: { ...prev[editingIndicatorId].inputs, [d.id]: e.target.checked },
                                       revision: Date.now(),
-                                    })
-                                  }
-                                />
-                              ) : d.type === "select" ? (
-                                <select
-                                  className={field}
-                                  value={String(program.inputs[d.id])}
-                                  onChange={(e) =>
-                                    setProgram({
-                                      ...program,
-                                      inputs: { ...program.inputs, [d.id]: e.target.value },
+                                    },
+                                  }));
+                                }}
+                              />
+                            ) : d.type === "select" ? (
+                              <select
+                                className={field}
+                                value={String(val)}
+                                onChange={(e) => {
+                                  setIndicatorPrograms((prev) => ({
+                                    ...prev,
+                                    [editingIndicatorId]: {
+                                      ...prev[editingIndicatorId],
+                                      inputs: { ...prev[editingIndicatorId].inputs, [d.id]: e.target.value },
                                       revision: Date.now(),
-                                    })
-                                  }
-                                >
-                                  {d.options?.map((o) => (
-                                    <option key={o} value={o}>
-                                      {o}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  className={field + " w-32"}
-                                  type={d.type === "color" ? "color" : d.type === "int" || d.type === "float" ? "number" : "text"}
-                                  min={d.min}
-                                  max={d.max}
-                                  step={d.step || "any"}
-                                  value={String(program.inputs[d.id])}
-                                  onChange={(e) =>
-                                    setProgram({
-                                      ...program,
+                                    },
+                                  }));
+                                }}
+                              >
+                                {d.options?.map((o) => (
+                                  <option key={o} value={o}>
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                className={field + " w-32"}
+                                type={d.type === "color" ? "color" : d.type === "int" || d.type === "float" ? "number" : "text"}
+                                min={d.min}
+                                max={d.max}
+                                step={d.step || "any"}
+                                value={String(val)}
+                                onChange={(e) => {
+                                  setIndicatorPrograms((prev) => ({
+                                    ...prev,
+                                    [editingIndicatorId]: {
+                                      ...prev[editingIndicatorId],
                                       inputs: {
-                                        ...program.inputs,
+                                        ...prev[editingIndicatorId].inputs,
                                         [d.id]: d.type === "int" || d.type === "float" ? Number(e.target.value) : e.target.value,
                                       },
                                       revision: Date.now(),
-                                    })
-                                  }
-                                />
-                              )}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                                    },
+                                  }));
+                                }}
+                              />
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 {preset === "fvg-reaction" && (
@@ -1147,6 +1253,9 @@ export function ResearchDesk() {
 
             {/* Selected Candle & Trade Trajectory Section */}
             <div className="space-y-4">
+              {c && r && (
+                <KeyZoneSuggestionCard candle={c} result={r} />
+              )}
               <section className={`${panel} p-4`}>
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                   <Activity size={14} /> Selected candle analysis

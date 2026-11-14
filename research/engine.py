@@ -1,4 +1,4 @@
-"""Causal, exploratory FVG scoring with Structural Targets & Candlestick Pattern Confluence."""
+"""Causal, exploratory FVG scoring with Structural Targets & Multi-Indicator Confluence."""
 from datetime import datetime, timezone
 import math
 from candlesticks import detect_pattern
@@ -23,6 +23,7 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
     results = []
     zones = []
     ranges = []
+    order_blocks = []
     atr = None
     last_hi = last_lo = None
     trend = 0
@@ -33,6 +34,13 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
     last_fvg = {1: None, -1: None}
     prior = None
     
+    # Strictly causal incremental EMAs (50 and 200 EMA)
+    ema50 = None
+    ema200 = None
+    k50 = 2.0 / 51.0
+    k200 = 2.0 / 201.0
+    news_blackout_until = -1
+    
     # Completed aggregates for MTF and HTF
     aggregates = {m: {'active': None, 'done': []} for m in (mtf_mult, htf_mult)}
     
@@ -42,6 +50,10 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
         if gap:
             zones = []
             
+        # Update causal EMAs
+        ema50 = c['close'] if ema50 is None else (c['close'] * k50 + ema50 * (1.0 - k50))
+        ema200 = c['close'] if ema200 is None else (c['close'] * k200 + ema200 * (1.0 - k200))
+        
         for mult, a in aggregates.items():
             bucket = t // (span * mult)
             prev = a['active']
@@ -127,6 +139,64 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
         cd = 1 if c['close'] > c['open'] else -1 if c['close'] < c['open'] else 0
         eq = (last_hi + last_lo) / 2 if last_hi is not None and last_lo is not None and last_hi > last_lo else None
         
+        # Order Block detection (prior opposing candle before displacement body >= 1.5 * atr)
+        if prior is not None and atr and body >= 1.5 * atr:
+            prev_dir = 1 if prior['close'] > prior['open'] else -1
+            if cd == 1 and prev_dir == -1:
+                order_blocks.append({
+                    'index': i - 1,
+                    'direction': 1,
+                    'top': max(prior['open'], prior['close']),
+                    'bottom': min(prior['open'], prior['close']),
+                    'created': i
+                })
+            elif cd == -1 and prev_dir == 1:
+                order_blocks.append({
+                    'index': i - 1,
+                    'direction': -1,
+                    'top': max(prior['open'], prior['close']),
+                    'bottom': min(prior['open'], prior['close']),
+                    'created': i
+                })
+        order_blocks = [ob for ob in order_blocks if i - ob['created'] <= 60]
+        touching_bull_ob = any(ob['direction'] == 1 and c['low'] <= ob['top'] and c['high'] >= ob['bottom'] for ob in order_blocks)
+        touching_bear_ob = any(ob['direction'] == -1 and c['high'] >= ob['bottom'] and c['low'] <= ob['top'] for ob in order_blocks)
+        
+        # Time-based Killzones (Asia, London, NY)
+        dt = datetime.fromtimestamp(t, tz=timezone.utc)
+        utc_min = dt.hour * 60 + dt.minute
+        is_london = 420 <= utc_min <= 600   # 07:00 - 10:00 UTC
+        is_ny = 750 <= utc_min <= 930       # 12:30 - 15:30 UTC
+        in_killzone = is_london or is_ny
+        
+        # High impact news shock detection (CPI/PPI at 12:30/13:30, FOMC at 18:00)
+        is_news_time = (abs(utc_min - 750) <= 20) or (abs(utc_min - 810) <= 20) or (abs(utc_min - 1080) <= 30)
+        is_news_shock = bool(is_news_time and atr and (c['high'] - c['low']) >= 2.2 * atr)
+        if is_news_shock:
+            news_blackout_until = i + 4
+        in_news_blackout = (i <= news_blackout_until)
+        
+        # Macro Trend Regime (200 EMA + 50 EMA)
+        trend_regime = 0
+        if i >= 200 and ema200 is not None:
+            if c['close'] > ema200 and (ema50 is None or ema50 >= ema200):
+                trend_regime = 1
+            elif c['close'] < ema200 and (ema50 is None or ema50 <= ema200):
+                trend_regime = -1
+                
+        # 0.705 Fibonacci OTE retracement zone check
+        ote_confluence = 0
+        if last_hi is not None and last_lo is not None and last_hi > last_lo:
+            rng = last_hi - last_lo
+            ote_zone_high = last_hi - rng * 0.618
+            ote_zone_low = last_hi - rng * 0.790
+            if ote_zone_low <= c['close'] <= ote_zone_high:
+                ote_confluence = 1
+            bear_ote_high = last_lo + rng * 0.790
+            bear_ote_low = last_lo + rng * 0.618
+            if bear_ote_low <= c['close'] <= bear_ote_high:
+                ote_confluence = -1
+        
         # Candlestick pattern detection at current candle
         pattern_data = detect_pattern(candles, i)
         pat_name = pattern_data['name'] if pattern_data else 'Standard Candle'
@@ -146,8 +216,7 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
             return 0 if not z else 0.4 + (0.3 if z['status'] == 'fresh' else 0.2) + (0.3 if z['status'] == 'rejected' else 0)
             
         pos = (0.8, 0.2) if eq is not None and c['close'] < eq else ((0.2, 0.8) if eq is not None and c['close'] > eq else (0.5, 0.5))
-        hour = datetime.fromtimestamp(t + span, tz=timezone.utc).hour
-        active = 7 <= hour < 16 or 12 <= hour < 21
+        active = in_killzone
         
         # Candle metric combines raw direction with candlestick pattern confirmation
         cb = 1.0 if cd == 1 and pat_dir == 1 else (0.75 if cd == 1 else (0.0 if cd == -1 else 0.5))
@@ -161,7 +230,7 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
             'fvg': (fv(freshbull), fv(freshbear), f'Active zones: {len(zones)}'),
             'position': (*pos, 'Equilibrium ' + (f'{eq:.2f}' if eq else 'unavailable')),
             'candle': (cb, cs, f'{pat_name} (direction: {cd}, pattern match: {pat_dir != 0})'),
-            'session': (0.65 if active else 0.35, 0.65 if active else 0.35, 'Fixed UTC London / New York session' if active else 'Outside configured UTC sessions')
+            'session': (0.65 if active else 0.35, 0.65 if active else 0.35, 'ICT Killzone (London/NY)' if active else 'Outside killzone session')
         }
         
         bull = sum(weights[k] * x[0] for k, x in metrics.items())
@@ -172,7 +241,7 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
         
         # Confirmation logic: structure break, liquidity sweep, or recognized pattern reaction at FVG
         pattern_confirms = (pat_dir == cd and pat_dir != 0)
-        confirmation = bool(ready and cd and ((trend == cd and break_age <= 8) or (ldir == cd and sweep_age <= 8) or (pattern_confirms and len(zones) > 0)))
+        confirmation = bool(ready and cd and not in_news_blackout and ((trend == cd and break_age <= 8) or (ldir == cd and sweep_age <= 8) or (pattern_confirms and len(zones) > 0)))
         
         results.append({
             'time': t,
@@ -191,6 +260,14 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
             'pattern': pat_name,
             'pattern_dir': pat_dir,
             'pattern_conf': pat_conf,
+            'trend_regime': trend_regime,
+            'in_killzone': in_killzone,
+            'is_news_shock': is_news_shock,
+            'in_news_blackout': in_news_blackout,
+            'touching_ob': 1 if touching_bull_ob else (-1 if touching_bear_ob else 0),
+            'ote_confluence': ote_confluence,
+            'last_hi': last_hi,
+            'last_lo': last_lo,
             'metrics': {k: {'bull': round(v[0] * weights[k], 2), 'bear': round(v[1] * weights[k], 2), 'max': weights[k], 'explanation': v[2]} for k, v in metrics.items()},
             'zones': [dict(z) for z in zones[-20:]],
             'conflict': bool(mb and hb and mb != hb),
@@ -200,18 +277,23 @@ def analyze(candles, minutes=5, weights=None, pivot_len=3, atr_len=14, mtf_mult=
         prior = c
     return results
 
-def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=20, cost=0.0, threshold=65,
-             target_mode='structural', stop_mode='structural', min_rr=1.5, require_pattern=False):
+def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=None, cost=0.0, threshold=65,
+             target_mode='structural', stop_mode='structural', min_rr=1.5, require_pattern=False,
+             filter_trend=False, filter_killzone=False, filter_news=True, filter_ote=False, filter_ob=False):
     """
     Backtesting engine supporting:
-    - Structural Take Profit: Previous swing highs (BSL) / swing lows (SSL) or opposing FVG midpoint.
-    - Structural Stop Loss: Invalidation below/above the reaction FVG and local swing.
-    - Dynamic RR filtering: Only execute when structural RR >= min_rr.
-    - Full chronological splits (Train 60%, Validation 20%, Test 20%).
+    - Structural Take Profit: Previous swing highs (BSL) / swing lows (SSL)
+    - Structural Stop Loss: Invalidation below/above the reaction FVG and local swing
+    - Dynamic RR filtering: Only execute when structural RR >= min_rr
+    - Multi-indicator confluences: Macro Trend (200 EMA), ICT Killzones, News Filter, OTE 0.705, Order Blocks
+    - Full chronological splits (Train 60%, Validation 20%, Test 20%)
     """
     n = len(candles)
+    if horizon is None:
+        horizon = max(24, int((60 / max(1, minutes)) * 12))  # 12 hours of price action
+        
     groups = {'Train': [], 'Validation': [], 'Test': []}
-    excluded = {k: {'tie': 0, 'gap': 0, 'timeout': 0, 'rr_filtered': 0} for k in groups}
+    excluded = {k: {'tie': 0, 'gap': 0, 'timeout': 0, 'rr_filtered': 0, 'indicator_filtered': 0} for k in groups}
     i = 0
     
     while i < n - 1:
@@ -226,15 +308,46 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=20, cost
             i += 1
             continue
             
-        # Optional candlestick pattern requirement
+        # 1. News Shock Filter (CPI / PPI / FOMC avoidance)
+        if filter_news and (r.get('in_news_blackout') or r.get('is_news_shock')):
+            excluded[group]['indicator_filtered'] += 1
+            i += 1
+            continue
+            
+        # 2. Macro Trend Filter (200 EMA)
+        if filter_trend and r.get('trend_regime') != d:
+            excluded[group]['indicator_filtered'] += 1
+            i += 1
+            continue
+            
+        # 3. Killzone Session Filter (London / NY Open only)
+        if filter_killzone and not r.get('in_killzone'):
+            excluded[group]['indicator_filtered'] += 1
+            i += 1
+            continue
+            
+        # 4. 0.705 OTE Retracement Confluence
+        if filter_ote and r.get('ote_confluence') != d:
+            excluded[group]['indicator_filtered'] += 1
+            i += 1
+            continue
+            
+        # 5. Order Block Retest Confluence
+        if filter_ob and r.get('touching_ob') != d:
+            excluded[group]['indicator_filtered'] += 1
+            i += 1
+            continue
+            
+        # 6. Candlestick Confirmation Filter
         if require_pattern and (r.get('pattern_dir') != d):
+            excluded[group]['indicator_filtered'] += 1
             i += 1
             continue
             
         entry = candles[i]['close']
         atr_val = r['atr']
         
-        # 1. Stop Loss determination (Structural vs ATR)
+        # Stop Loss determination (Structural vs ATR)
         if stop_mode == 'structural':
             if d == 1:
                 fvg_low = min((z['bottom'] for z in r['zones'] if z['direction'] == 1), default=candles[i]['low'])
@@ -256,20 +369,17 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=20, cost
             i += 1
             continue
             
-        # 2. Take Profit determination (Structural BSL/SSL vs Fixed RR)
+        # Take Profit determination (Structural BSL/SSL vs Fixed RR)
         if target_mode == 'structural':
             if d == 1:
-                # Search for previous swing highs (Buy-side liquidity)
                 lookback_highs = [candles[k]['high'] for k in range(max(0, i - 45), i) if candles[k]['high'] > entry + 0.5 * risk]
                 tp = min(lookback_highs) if lookback_highs else entry + risk * max(min_rr, 1.5)
             else:
-                # Search for previous swing lows (Sell-side liquidity)
                 lookback_lows = [candles[k]['low'] for k in range(max(0, i - 45), i) if candles[k]['low'] < entry - 0.5 * risk]
                 tp = max(lookback_lows) if lookback_lows else entry - risk * max(min_rr, 1.5)
                 
             effective_rr = abs(tp - entry) / risk
             
-            # Dynamic filter: If structural target doesn't offer adequate R:R, reject the setup
             if effective_rr < min_rr:
                 excluded[group]['rr_filtered'] += 1
                 i += 1
@@ -342,36 +452,137 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=20, cost
             'maxDrawdownR': round(dd, 2),
             'expectancyR': round(tot_r / len(trades), 2) if trades else None,
             'profitFactor': profit_factor,
-            'tradeList': trades[-40:],  # return the recent simulated trade setups for chart overlays
+            'tradeList': trades[-40:],
             'excluded': excluded[k]
         }
     return result
 
 def optimize(candles, results, minutes=5, cost=0.0):
     """
-    Grid sweep optimization across the 60% Train dataset.
-    Validates candidates on the 20% Validation split to prevent overfitting.
-    Returns the top presets: High Expectancy, High Win Rate, and Structural Swing.
+    Multi-Indicator Combination Optimizer.
+    Evaluates individual indicators and multi-indicator confluence setups (2 or more indicators)
+    across the 60% Train dataset and tests them on the 20% Validation held-out dataset.
     """
     candidates = [
-        {'name': 'Structural Swing (BSL/SSL Target)', 'threshold': 65, 'target_mode': 'structural', 'stop_mode': 'structural', 'min_rr': 1.8, 'rr': 1.8, 'stop_atr': 1.0, 'require_pattern': False},
-        {'name': 'High Win Rate (Candlestick Confirmed)', 'threshold': 70, 'target_mode': 'fixed', 'stop_mode': 'structural', 'min_rr': 1.5, 'rr': 1.5, 'stop_atr': 1.0, 'require_pattern': True},
-        {'name': 'Balanced Institutional', 'threshold': 65, 'target_mode': 'structural', 'stop_mode': 'structural', 'min_rr': 1.5, 'rr': 1.5, 'stop_atr': 1.0, 'require_pattern': False},
-        {'name': 'Maximum Expectancy (2.5R Runner)', 'threshold': 70, 'target_mode': 'structural', 'stop_mode': 'structural', 'min_rr': 2.2, 'rr': 2.2, 'stop_atr': 1.2, 'require_pattern': False},
-        {'name': 'Conservative Strict Confluence', 'threshold': 75, 'target_mode': 'fixed', 'stop_mode': 'atr', 'min_rr': 2.0, 'rr': 2.0, 'stop_atr': 1.0, 'require_pattern': True},
+        # 1. Confluence: FVG + 200 EMA Macro Trend + News Filter
+        {
+            'name': 'FVG + Macro Trend (200 EMA)',
+            'indicators': ['FVG Reaction', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 1.6,
+            'rr': 1.6,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': True,
+            'filter_killzone': False,
+            'filter_news': True,
+            'filter_ote': False,
+            'filter_ob': False
+        },
+        # 2. Confluence: FVG + ICT Killzones + News Filter
+        {
+            'name': 'FVG + ICT Killzones (London & NY)',
+            'indicators': ['FVG Reaction', 'ICT Killzones', 'CPI/PPI News Filter'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 1.5,
+            'rr': 1.5,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': False,
+            'filter_killzone': True,
+            'filter_news': True,
+            'filter_ote': False,
+            'filter_ob': False
+        },
+        # 3. Triple Confluence: FVG + Macro Trend + Killzones + News
+        {
+            'name': 'Triple Confluence: FVG + Trend + Killzones',
+            'indicators': ['FVG Reaction', '200 EMA Macro Trend', 'ICT Killzones', 'CPI/PPI News Filter'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 1.8,
+            'rr': 1.8,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': True,
+            'filter_killzone': True,
+            'filter_news': True,
+            'filter_ote': False,
+            'filter_ob': False
+        },
+        # 4. Institutional Quad Confluence: FVG + Trend + Key Levels (OTE / OB) + News
+        {
+            'name': 'Full ICT Edge (FVG + Key Levels + Trend + News)',
+            'indicators': ['FVG Reaction', 'Key Levels (OTE/OB)', '200 EMA Macro Trend', 'CPI/PPI News Filter'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 2.0,
+            'rr': 2.0,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': True,
+            'filter_killzone': False,
+            'filter_news': True,
+            'filter_ote': True,
+            'filter_ob': False
+        },
+        # 5. Candlestick Confirmed: FVG + Candlestick Reversal + Killzones
+        {
+            'name': 'Killzone Sniper (Candlestick + FVG + Killzone)',
+            'indicators': ['FVG Reaction', 'Candlestick Reversal', 'ICT Killzones'],
+            'threshold': 70,
+            'target_mode': 'fixed',
+            'stop_mode': 'structural',
+            'min_rr': 1.5,
+            'rr': 1.5,
+            'stop_atr': 1.0,
+            'require_pattern': True,
+            'filter_trend': False,
+            'filter_killzone': True,
+            'filter_news': True,
+            'filter_ote': False,
+            'filter_ob': False
+        },
+        # 6. Baseline Raw FVG (For Comparison)
+        {
+            'name': 'Raw FVG Baseline (No Additional Filters)',
+            'indicators': ['FVG Reaction'],
+            'threshold': 65,
+            'target_mode': 'structural',
+            'stop_mode': 'structural',
+            'min_rr': 1.5,
+            'rr': 1.5,
+            'stop_atr': 1.0,
+            'require_pattern': False,
+            'filter_trend': False,
+            'filter_killzone': False,
+            'filter_news': False,
+            'filter_ote': False,
+            'filter_ob': False
+        }
     ]
     
     scored = []
-    min_req_trades = max(2, min(5, int(len(candles) * 0.004)))
+    min_req_trades = max(2, min(5, int(len(candles) * 0.002)))
     for c in candidates:
-        bt = backtest(candles, results, minutes=minutes, rr=c['rr'], stop_atr=c['stop_atr'],
-                      threshold=c['threshold'], cost=cost, target_mode=c['target_mode'],
-                      stop_mode=c['stop_mode'], min_rr=c['min_rr'], require_pattern=c['require_pattern'])
+        bt = backtest(
+            candles, results, minutes=minutes, rr=c['rr'], stop_atr=c['stop_atr'],
+            threshold=c['threshold'], cost=cost, target_mode=c['target_mode'],
+            stop_mode=c['stop_mode'], min_rr=c['min_rr'], require_pattern=c['require_pattern'],
+            filter_trend=c['filter_trend'], filter_killzone=c['filter_killzone'],
+            filter_news=c['filter_news'], filter_ote=c['filter_ote'], filter_ob=c['filter_ob']
+        )
         tr = bt['Train']
         val = bt['Validation']
         if tr['trades'] >= min_req_trades:
-            exp = tr['expectancyR'] or -99
-            val_exp = val['expectancyR'] or -99
+            exp = tr['expectancyR'] if tr['expectancyR'] is not None else -99
+            val_exp = val['expectancyR'] if val['expectancyR'] is not None else -99
             scored.append({
                 **c,
                 'trainTrades': tr['trades'],

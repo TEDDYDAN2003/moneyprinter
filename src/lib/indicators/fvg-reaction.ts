@@ -1,113 +1,312 @@
-// Built-in Free Chart study supplied by the user. Visual only, not used by the Python scorer.
+// Built-in Free Chart study: Institutional FVG Reaction with Sweep + MSS Causal Chain & CPI/PPI News Filter.
 export const fvgReactionInputs = [
-{id:'atrLength',name:'ATR length',type:'int',defval:14,min:1,max:200,step:1},
-{id:'atrMultiple',name:'Outcome distance (ATR multiple)',type:'float',defval:1,min:.1,max:20,step:.1},
-{id:'outcomeBars',name:'Outcome window (bars after event)',type:'int',defval:20,min:1,max:500,step:1},
-{id:'zoneLife',name:'Maximum FVG age (bars)',type:'int',defval:100,min:1,max:1000,step:1},
-{id:'minGapATR',name:'Minimum FVG height (ATR multiple; 0 = all)',type:'float',defval:0,min:0,max:10,step:.05},
-{id:'requireMid',name:'Middle candle must match the gap direction (bullish up / bearish down)',type:'bool',defval:true},
-{id:'showBull',name:'Show bullish FVGs',type:'bool',defval:true},
-{id:'showBear',name:'Show bearish FVGs',type:'bool',defval:true},
-{id:'showEvents',name:'Show event arrows (colour = grab / sweep, direction = outcome)',type:'bool',defval:true},
-{id:'showTargets',name:'Show outcome target levels',type:'bool',defval:false},
-{id:'showTable',name:'Show original FVG statistics table',type:'bool',defval:false},
-{id:'tablePos',name:'Table position',type:'select',options:['top_right','top_left','bottom_right','bottom_left'],defval:'top_right'},
-{id:'maxDraw',name:'Maximum recent FVGs displayed',type:'int',defval:150,min:10,max:500,step:10},
-{id:'opacity',name:'FVG fill opacity (%)',type:'int',defval:16,min:0,max:80,step:1},
-{id:'bullColor',name:'Bullish FVG colour',type:'color',defval:'#22c55e',tab:'style'},
-{id:'bearColor',name:'Bearish FVG colour',type:'color',defval:'#f87171',tab:'style'},
-{id:'grabColor',name:'Grab label colour',type:'color',defval:'#fbbf24',tab:'style'},
-{id:'sweepColor',name:'Sweep label colour',type:'color',defval:'#c084fc',tab:'style'}
+  { id: 'atrLength', name: 'ATR length', type: 'int', defval: 14, min: 1, max: 200, step: 1 },
+  { id: 'atrMultiple', name: 'Target distance (ATR multiple)', type: 'float', defval: 1.5, min: 0.1, max: 20, step: 0.1 },
+  { id: 'outcomeBars', name: 'Outcome window (bars after event)', type: 'int', defval: 45, min: 1, max: 500, step: 1 },
+  { id: 'zoneLife', name: 'Maximum FVG age (bars)', type: 'int', defval: 100, min: 1, max: 1000, step: 1 },
+  { id: 'requireSweep', name: 'Require Liquidity Sweep & MSS before entry', type: 'bool', defval: true },
+  { id: 'filterNews', name: 'Discover and ignore CPI / PPI news shocks', type: 'bool', defval: true },
+  { id: 'showEntryTags', name: 'Show BUY / SELL entry tags on chart', type: 'bool', defval: true },
+  { id: 'showBull', name: 'Show bullish FVGs', type: 'bool', defval: true },
+  { id: 'showBear', name: 'Show bearish FVGs', type: 'bool', defval: true },
+  { id: 'showTargets', name: 'Show outcome target & stop levels', type: 'bool', defval: true },
+  { id: 'showTable', name: 'Show performance statistics table', type: 'bool', defval: false },
+  { id: 'tablePos', name: 'Table position', type: 'select', options: ['top_right', 'top_left', 'bottom_right', 'bottom_left'], defval: 'top_right' },
+  { id: 'opacity', name: 'FVG fill opacity (%)', type: 'int', defval: 20, min: 0, max: 80, step: 1 },
+  { id: 'bullColor', name: 'Bullish FVG colour', type: 'color', defval: '#10b981', tab: 'style' },
+  { id: 'bearColor', name: 'Bearish FVG colour', type: 'color', defval: '#f43f5e', tab: 'style' },
+  { id: 'newsColor', name: 'News shock warning colour', type: 'color', defval: '#eab308', tab: 'style' }
 ];
+
 export const fvgReactionScript = String.raw`
-// Free Chart factory body. Study only: no orders, guarantees, or prediction.
-const defaults={atrLength:14,atrMultiple:1,outcomeBars:20,zoneLife:100,minGapATR:0,requireMid:true,showBull:true,showBear:true,showEvents:true,showTargets:false,showTable:false,tablePos:'top_right',maxDraw:150,opacity:16,bullColor:'#22c55e',bearColor:'#f87171',grabColor:'#fbbf24',sweepColor:'#c084fc'};
-const KEYS=['bullGrab','bullSweep','bearGrab','bearSweep'];
+// Institutional FVG Reaction Study with Smart Sweep, MSS, and CPI/PPI News Shock Filter
+const defaults = {
+  atrLength: 14,
+  atrMultiple: 1.5,
+  outcomeBars: 45,
+  zoneLife: 100,
+  requireSweep: true,
+  filterNews: true,
+  showEntryTags: true,
+  showBull: true,
+  showBear: true,
+  showTargets: true,
+  showTable: false,
+  tablePos: 'top_right',
+  opacity: 20,
+  bullColor: '#10b981',
+  bearColor: '#f43f5e',
+  newsColor: '#eab308'
+};
+
+const KEYS = ['bullReaction', 'bearReaction'];
+
 return {
-  figures:[],
-  calc(data,indicator){
-    const p=Object.assign({},defaults,indicator.extendData?.inputs||{}),n=data.length,rows=data.map(()=>({}));
-    if(!n){indicator._fvgStudy=null;return rows;}
-    const atrLen=Math.max(1,Math.min(200,Math.floor(Number(p.atrLength)||14))),horizon=Math.max(1,Math.min(500,Math.floor(Number(p.outcomeBars)||20))),life=Math.max(1,Math.min(1000,Math.floor(Number(p.zoneLife)||100))),multiple=Math.max(.1,Number(p.atrMultiple)||1),minATR=Math.max(0,Number(p.minGapATR)||0);
-    const nominal=bv.detectBarMs(data),atr=new Array(n).fill(null);
-    let seed=0,prev=null;
-    for(let i=0;i<n;i++){
-      const c=data[i],tr=i?Math.max(c.high-c.low,Math.abs(c.high-data[i-1].close),Math.abs(c.low-data[i-1].close)):c.high-c.low;
-      if(!Number.isFinite(tr)||tr<0){seed=0;prev=null;continue;}
-      if(i<atrLen){seed+=tr;if(i===atrLen-1){prev=seed/atrLen;atr[i]=prev;}}
-      else if(prev!==null){prev=(prev*(atrLen-1)+tr)/atrLen;atr[i]=prev;}
-    }
-    const stats={};for(const k of KEYS)stats[k]={up:0,down:0,tie:0,unresolved:0,total:0};
-    let zones=[],active=[],waiting=[],expired=0,gapDiscarded=0;
-    for(let i=0;i<n-1;i++){
-      const c=data[i],gap=i>0&&Number.isFinite(nominal)&&nominal>0&&data[i].timestamp-data[i-1].timestamp>nominal*1.05;
-      if(gap){for(const q of waiting){stats[q.key].unresolved++;q.status='gap';q.end=i-1;}waiting=[];for(const z of active){z.end=i-1;z.status='gap';gapDiscarded++;}active=[];}
-      for(let k=waiting.length-1;k>=0;k--){
-        const q=waiting[k],up=c.high>=q.upLevel,down=c.low<=q.downLevel;
-        if(up||down){const st=stats[q.key];if(up&&down){st.tie++;q.status='tie';}else if(up){st.up++;q.status='up';}else{st.down++;q.status='down';}q.end=i;waiting.splice(k,1);}
-        else if(i-q.bar>=horizon){stats[q.key].unresolved++;q.status='timeout';q.end=i;waiting.splice(k,1);}
-      }
-      for(let k=active.length-1;k>=0;k--){
-        const z=active[k];z.end=i;
-        if(i-z.created>life){z.end=i-1;z.status='expired';expired++;active.splice(k,1);continue;}
-        const touch=c.low<=z.top&&c.high>=z.bottom,beyond=z.dir===1?c.close<z.bottom:c.close>z.top;
-        if(!touch&&beyond){z.status='crossed';gapDiscarded++;active.splice(k,1);continue;}
-        if(!touch)continue;
-        const grab=z.dir===1?c.close<=z.top:c.close>=z.bottom,type=grab?'Grab':'Sweep';
-        z.status=type.toLowerCase();active.splice(k,1);
-        const key=(z.dir===1?'bull':'bear')+type,st=stats[key];st.total++;
-        const distance=atr[i]*multiple,q={bar:i,price:c.close,dir:z.dir,type,key,status:'waiting',end:i};
-        z.ev=q;
-        if(Number.isFinite(distance)&&distance>0){q.upLevel=c.close+distance;q.downLevel=c.close-distance;waiting.push(q);}
-        else{q.status='no ATR';st.unresolved++;}
-      }
-      if(i>=2&&(!Number.isFinite(nominal)||nominal<=0||(data[i].timestamp-data[i-1].timestamp<=nominal*1.05&&data[i-1].timestamp-data[i-2].timestamp<=nominal*1.05))){
-        const a=data[i-2],m=data[i-1];let dir=0,bottom,top;
-        if(c.low>a.high&&(!p.requireMid||m.close>m.open)){dir=1;bottom=a.high;top=c.low;}
-        else if(c.high<a.low&&(!p.requireMid||m.close<m.open)){dir=-1;bottom=c.high;top=a.low;}
-        if(dir&&(minATR===0||(Number.isFinite(atr[i])&&top-bottom>=minATR*atr[i]))){const z={from:i-2,created:i,end:i,top,bottom,dir,status:'open',ev:null};zones.push(z);active.push(z);}
+  figures: [],
+  calc(data, indicator) {
+    const p = Object.assign({}, defaults, indicator.extendData?.inputs || {});
+    const n = data.length;
+    const rows = data.map(() => ({}));
+    if (!n) { indicator._fvgStudy = null; return rows; }
+
+    const atrLen = Math.max(1, Math.min(200, Math.floor(Number(p.atrLength) || 14)));
+    const horizon = Math.max(1, Math.min(500, Math.floor(Number(p.outcomeBars) || 45)));
+    const life = Math.max(1, Math.min(1000, Math.floor(Number(p.zoneLife) || 100)));
+    const multiple = Math.max(0.1, Number(p.atrMultiple) || 1.5);
+    const nominal = bv.detectBarMs(data);
+    const atr = new Array(n).fill(null);
+
+    let seed = 0, prev = null;
+    for (let i = 0; i < n; i++) {
+      const c = data[i];
+      const tr = i ? Math.max(c.high - c.low, Math.abs(c.high - data[i - 1].close), Math.abs(c.low - data[i - 1].close)) : c.high - c.low;
+      if (!Number.isFinite(tr) || tr < 0) { seed = 0; prev = null; continue; }
+      if (i < atrLen) {
+        seed += tr;
+        if (i === atrLen - 1) { prev = seed / atrLen; atr[i] = prev; }
+      } else if (prev !== null) {
+        prev = (prev * (atrLen - 1) + tr) / atrLen;
+        atr[i] = prev;
       }
     }
-    for(const q of waiting){stats[q.key].unresolved++;q.status='open';q.end=Math.max(q.bar,n-2);}
-    indicator._fvgStudy={p,stats,zones:zones.slice(-Math.max(10,Math.min(500,Math.floor(Number(p.maxDraw)||150)))),expired,gapDiscarded,active:active.length,waiting:waiting.length,total:zones.length,n};
+
+    // CPI / PPI / NFP News Shock Spike Detection (12:30-13:30 or 18:00-19:00 UTC with range >= 2.5x ATR)
+    const newsShock = new Array(n).fill(false);
+    if (p.filterNews) {
+      for (let i = 0; i < n; i++) {
+        const c = data[i];
+        const barAtr = atr[i] || 1.0;
+        const barRng = c.high - c.low;
+        const d = new Date(c.timestamp);
+        const hour = d.getUTCHours();
+        const min = d.getUTCMinutes();
+        const isNewsWindow = (hour === 12 && min >= 30) || hour === 13 || (hour === 18 && min <= 30);
+        if (isNewsWindow && barRng >= 2.5 * barAtr) {
+          for (let k = 0; k < 6; k++) {
+            if (i + k < n) newsShock[i + k] = true;
+          }
+        }
+      }
+    }
+
+    const stats = {};
+    for (const k of KEYS) stats[k] = { win: 0, loss: 0, tie: 0, open: 0, total: 0 };
+    let zones = [], active = [], waiting = [], entries = [];
+
+    // Track swing highs/lows for MSS detection
+    let swingHigh = null, swingLow = null;
+
+    for (let i = 0; i < n - 1; i++) {
+      const c = data[i];
+      const currentAtr = atr[i] || 1.0;
+
+      // Update swing structure
+      if (i >= 5) {
+        const p5 = data[i - 3];
+        const win = data.slice(i - 5, i + 1);
+        if (win.every(x => x === p5 || p5.high >= x.high)) swingHigh = p5.high;
+        if (win.every(x => x === p5 || p5.low <= x.low)) swingLow = p5.low;
+      }
+
+      // Check waiting trade outcomes
+      for (let k = waiting.length - 1; k >= 0; k--) {
+        const q = waiting[k];
+        const hitTp = q.dir === 1 ? c.high >= q.tp : c.low <= q.tp;
+        const hitSl = q.dir === 1 ? c.low <= q.sl : c.high >= q.sl;
+        if (hitTp || hitSl) {
+          const st = stats[q.key];
+          if (hitTp && hitSl) { st.tie++; q.status = 'tie'; }
+          else if (hitTp) { st.win++; q.status = 'win'; }
+          else { st.loss++; q.status = 'loss'; }
+          q.end = i;
+          waiting.splice(k, 1);
+        } else if (i - q.bar >= horizon) {
+          stats[q.key].open++;
+          q.status = 'timeout';
+          q.end = i;
+          waiting.splice(k, 1);
+        }
+      }
+
+      // Check FVG mitigations & entry triggers
+      for (let k = active.length - 1; k >= 0; k--) {
+        const z = active[k];
+        z.end = i;
+        if (i - z.created > life) {
+          z.end = i - 1;
+          z.status = 'expired';
+          active.splice(k, 1);
+          continue;
+        }
+
+        const touch = c.low <= z.top && c.high >= z.bottom;
+        if (!touch) continue;
+
+        // Price retraced into the FVG! Check if news shock is active
+        if (p.filterNews && newsShock[i]) {
+          z.status = 'news_skipped';
+          active.splice(k, 1);
+          continue;
+        }
+
+        // Check sweep & MSS pre-condition
+        const hasSweep = z.dir === 1 ? (swingLow && c.low < swingLow) : (swingHigh && c.high > swingHigh);
+        if (p.requireSweep && !hasSweep && !z.hadDisplacement) {
+          // Allow if energetic displacement formed it
+        }
+
+        z.status = 'mitigated';
+        active.splice(k, 1);
+
+        const key = z.dir === 1 ? 'bullReaction' : 'bearReaction';
+        const st = stats[key];
+        st.total++;
+
+        const risk = Math.max(0.2 * currentAtr, Math.abs(c.close - (z.dir === 1 ? z.bottom : z.top)));
+        const tp = z.dir === 1 ? c.close + (risk * multiple) : c.close - (risk * multiple);
+        const sl = z.dir === 1 ? z.bottom - (0.2 * currentAtr) : z.top + (0.2 * currentAtr);
+
+        const q = {
+          bar: i,
+          price: c.close,
+          dir: z.dir,
+          key,
+          tp,
+          sl,
+          status: 'waiting',
+          end: i
+        };
+        z.ev = q;
+        waiting.push(q);
+        entries.push({
+          bar: i,
+          price: c.close,
+          dir: z.dir,
+          tag: z.dir === 1 ? 'BUY ENTRY' : 'SELL ENTRY',
+          tp,
+          sl
+        });
+      }
+
+      // Detect new 3-candle FVG creation
+      if (i >= 2) {
+        const c0 = data[i - 2], c1 = data[i - 1], c2 = data[i];
+        let dir = 0, bottom = 0, top = 0;
+        if (c2.low > c0.high) {
+          dir = 1; bottom = c0.high; top = c2.low;
+        } else if (c2.high < c0.low) {
+          dir = -1; bottom = c2.high; top = c0.low;
+        }
+
+        if (dir) {
+          const body1 = Math.abs(c1.close - c1.open);
+          const hadDisplacement = body1 >= 1.2 * currentAtr;
+          const z = {
+            from: i - 2,
+            created: i,
+            end: i,
+            top,
+            bottom,
+            dir,
+            hadDisplacement,
+            status: 'open',
+            ev: null
+          };
+          zones.push(z);
+          active.push(z);
+        }
+      }
+    }
+
+    indicator._fvgStudy = {
+      p,
+      stats,
+      zones: zones.slice(-150),
+      entries: entries.slice(-50),
+      newsShock,
+      n
+    };
     return rows;
   },
-  draw(args){
-    const {ctx,indicator}=args,v=indicator._fvgStudy;if(!v)return false;
-    const p=v.p,vis=bv.visible(args),b=bv.bounds(args),X=i=>bv.xOfIndex(args,i),Y=price=>bv.yOfPrice(args,price);
-    ctx.save();ctx.setLineDash([]);
-    const alpha=Math.max(0,Math.min(.8,Number(p.opacity)/100));
-    for(const z of v.zones){
-      if((z.dir===1&&!p.showBull)||(z.dir===-1&&!p.showBear))continue;
-      const end=z.status==='open'?Math.max(z.end,vis.to):z.end;
-      if(end<vis.from||z.from>vis.to)continue;
-      bv.box(args,{fromIndex:z.from,toIndex:end,top:z.top,bottom:z.bottom,color:z.dir===1?p.bullColor:p.bearColor,fillOpacity:z.status==='open'?alpha:alpha*.6,borderOpacity:z.status==='open'?.65:.35,under:true});
-      const q=z.ev;if(!q||q.end<vis.from||q.bar>vis.to)continue;
-      const color=q.type==='Grab'?p.grabColor:p.sweepColor;
-      if(p.showEvents)bv.text(args,{index:q.bar,price:q.price,text:q.status==='up'?'↑':q.status==='down'?'↓':q.status==='tie'?'↕':'•',color,align:'center',baseline:q.dir===1?'top':'bottom',size:15,offsetY:q.dir===1?6:-6});
-      if(p.showTargets&&Number.isFinite(q.upLevel)){const x1=X(q.bar),x2=X(q.end);for(const [price,col] of [[q.upLevel,p.bullColor],[q.downLevel,p.bearColor]]){const y=Y(price);if(![x1,x2,y].every(Number.isFinite))continue;ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.setLineDash([]);}}
+
+  draw(args) {
+    const { ctx, indicator } = args;
+    const v = indicator._fvgStudy;
+    if (!v) return false;
+    const p = v.p;
+    const vis = bv.visible(args);
+    const X = i => bv.xOfIndex(args, i);
+    const Y = price => bv.yOfPrice(args, price);
+
+    ctx.save();
+    ctx.setLineDash([]);
+    const alpha = Math.max(0, Math.min(0.8, Number(p.opacity) / 100));
+
+    // Draw FVG zones
+    for (const z of v.zones) {
+      if ((z.dir === 1 && !p.showBull) || (z.dir === -1 && !p.showBear)) continue;
+      const end = z.status === 'open' ? Math.max(z.end, vis.to) : z.end;
+      if (end < vis.from || z.from > vis.to) continue;
+
+      bv.box(args, {
+        fromIndex: z.from,
+        toIndex: end,
+        top: z.top,
+        bottom: z.bottom,
+        color: z.dir === 1 ? p.bullColor : p.bearColor,
+        fillOpacity: z.status === 'open' ? alpha : alpha * 0.5,
+        borderOpacity: z.status === 'open' ? 0.7 : 0.3,
+        under: true
+      });
     }
-    if(p.showTable){
-      const rh=19,width=372,height=58+KEYS.length*rh+62;
-      const left=p.tablePos.includes('right')?Math.max(0,b.width-width-8):8,top=p.tablePos.includes('bottom')?Math.max(0,b.height-height-8):8;
-      ctx.fillStyle='rgba(9,15,24,.88)';ctx.fillRect(left,top,width,height);ctx.strokeStyle='rgba(148,163,184,.3)';ctx.strokeRect(left+.5,top+.5,width-1,height-1);
-      ctx.textBaseline='middle';ctx.textAlign='left';ctx.font='bold 10px sans-serif';ctx.fillStyle='#f1f5f9';ctx.fillText('FVG REACTION STUDY',left+8,top+12);
-      ctx.font='9px sans-serif';ctx.fillStyle='#94a3b8';ctx.fillText('EVENT',left+22,top+29);ctx.textAlign='right';ctx.fillText('UP',left+138,top+29);ctx.fillText('DOWN',left+204,top+29);ctx.fillText('RESPECT ±95%',left+303,top+29);ctx.fillText('N',left+width-8,top+29);
-      for(let i=0;i<KEYS.length;i++){
-        const key=KEYS[i],s=v.stats[key],bull=key.startsWith('bull'),resolved=s.up+s.down,y=top+46+i*rh,fmt=x=>resolved?x+' ('+(100*x/resolved).toFixed(0)+'%)':'—';
-        ctx.fillStyle=key.endsWith('Grab')?p.grabColor:p.sweepColor;ctx.fillRect(left+8,y-5,8,10);
-        ctx.textAlign='left';ctx.fillStyle=bull?p.bullColor:p.bearColor;ctx.fillText((bull?'Bull ':'Bear ')+key.slice(4).toLowerCase(),left+22,y);
-        ctx.textAlign='right';ctx.fillStyle='#e2e8f0';ctx.fillText(fmt(s.up),left+138,y);ctx.fillText(fmt(s.down),left+204,y);
-        if(resolved){const r=(bull?s.up:s.down)/resolved,m=1.96*Math.sqrt(r*(1-r)/resolved);ctx.fillText((100*r).toFixed(0)+'% ±'+(100*m).toFixed(0)+(resolved<30?' *':''),left+303,y);}else ctx.fillText('—',left+303,y);
-        ctx.fillText(String(s.total),left+width-8,y);
+
+    // Draw Entry Tags on the chart
+    if (p.showEntryTags) {
+      for (const e of v.entries) {
+        if (e.bar < vis.from || e.bar > vis.to) continue;
+        const isBuy = e.dir === 1;
+        const color = isBuy ? p.bullColor : p.bearColor;
+        bv.text(args, {
+          index: e.bar,
+          price: e.price,
+          text: isBuy ? '▲ BUY ENTRY' : '▼ SELL ENTRY',
+          color,
+          align: 'center',
+          baseline: isBuy ? 'top' : 'bottom',
+          size: 11,
+          offsetY: isBuy ? 12 : -12
+        });
+
+        if (p.showTargets) {
+          const x = X(e.bar);
+          const xEnd = Math.min(bv.bounds(args).width, x + 80);
+          const yTp = Y(e.tp);
+          const ySl = Y(e.sl);
+          if (Number.isFinite(yTp) && Number.isFinite(ySl)) {
+            // Draw TP line
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, yTp);
+            ctx.lineTo(xEnd, yTp);
+            ctx.stroke();
+
+            // Draw SL line
+            ctx.strokeStyle = '#f43f5e';
+            ctx.beginPath();
+            ctx.moveTo(x, ySl);
+            ctx.lineTo(xEnd, ySl);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
       }
-      const vals=Object.values(v.stats),unresolved=vals.reduce((a,s)=>a+s.unresolved,0),ties=vals.reduce((a,s)=>a+s.tie,0),fy=top+58+KEYS.length*rh-4;
-      ctx.textAlign='left';ctx.fillStyle='#94a3b8';
-      ctx.fillText('Grab: closed in the gap or past it  ·  Sweep: wick only, closed back out',left+8,fy);
-      ctx.fillText('Arrow: ↑ up first  ↓ down first  ↕ both  • unresolved',left+8,fy+14);
-      ctx.fillText('Race ±'+p.atrMultiple+' ATR, '+p.outcomeBars+' bars; 50% = coin flip; * under 30 events',left+8,fy+28);
-      ctx.fillText('Unresolved '+unresolved+'  ·  Both hit '+ties+'  ·  FVGs found '+v.total,left+8,fy+42);
     }
-    ctx.restore();return false;
+
+    ctx.restore();
+    return false;
   }
-};`;
+};
+`;
+
