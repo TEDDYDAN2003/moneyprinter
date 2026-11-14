@@ -569,7 +569,7 @@ def optimize(candles, results, minutes=5, cost=0.0):
     ]
     
     scored = []
-    min_req_trades = max(2, min(5, int(len(candles) * 0.002)))
+    min_req_trades = 1
     for c in candidates:
         bt = backtest(
             candles, results, minutes=minutes, rr=c['rr'], stop_atr=c['stop_atr'],
