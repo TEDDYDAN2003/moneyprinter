@@ -52,6 +52,7 @@ export function ResearchDesk(){
  const replayCursorChanged=useCallback((i:number|null)=>{setReplayCursor(i);if(i!==null)setSelected(i)},[]);
  const [quickParams,setQuickParams]=useState(quickDefaults),[quickOpen,setQuickOpen]=useState(false),[quickSelected,setQuickSelected]=useState<number|null>(null);
  const [program,setProgram]=useState<IndicatorProgram|null>(null),[indicatorStatus,setIndicatorStatus]=useState(''),[preset,setPreset]=useState('none'),[settingsOpen,setSettingsOpen]=useState(false);
+ useEffect(()=>{if(preset==='no-wick'&&typeof program?.inputs.intLen==='number'){const length=Math.max(1,Math.min(30,Math.floor(program.inputs.intLen)));setQuickParams(v=>v.swingLength===length?v:{...v,swingLength:length});}},[preset,program]);
  const [data,setData]=useState<Data|null>(null),[source,setSource]=useState('sample'),[minutes,setMinutes]=useState(5),[count,setCount]=useState(5000),[selected,setSelected]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState(''),[weights,setWeights]=useState(initial),[threshold,setThreshold]=useState(65),[rr,setRr]=useState(1.5),[stopAtr,setStopAtr]=useState(1),[horizon,setHorizon]=useState(20),[cost,setCost]=useState(0);
  const latest=useRef<Data|null>(null),selectedRef=useRef(0),viewportRef=useRef<LogicalViewport|null>(null),restoreRef=useRef<LogicalViewport|null>(null),generation=useRef(0),olderBusy=useRef(false),historyBlocked=useRef(false);
  const [olderLoading,setOlderLoading]=useState(false),[olderNotice,setOlderNotice]=useState('');

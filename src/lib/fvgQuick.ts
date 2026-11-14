@@ -1,3 +1,4 @@
+import {createStructureEngine} from './marketStructure';
 /** Point-in-time FVG research. Every outcome is bounded by `asOf`. */
 export type QuickBar={time:number;open:number;high:number;low:number;close:number};
 export type StudyOptions={atrLength:number;zoneLife:number;minGapATR:number;requireMid:boolean;showBull:boolean;showBear:boolean};
@@ -8,15 +9,13 @@ export const quickDefaults:QuickParams={rr:1.5,stop:'swing',buffer:0.1,atrStop:1
 export const defaultStudy:StudyOptions={atrLength:14,zoneLife:100,minGapATR:0,requireMid:true,showBull:true,showBear:true};
 export function runFvgQuick(bars:QuickBar[],asOf:number,minutes:number,p:QuickParams,study:StudyOptions){
  const last=Math.min(asOf,bars.length-1);if(last<0)return {zones:[] as QuickZone[],first:0,last};
- const first=Math.max(0,last-p.lookback+1),n=last+1,atr=new Array<number|null>(n).fill(null),hi=new Array<number|null>(n).fill(null),lo=new Array<number|null>(n).fill(null),trend=new Int8Array(n),shift=new Int8Array(n),prevTrend=new Int8Array(n);let seed=0,a:number|null=null,lastHigh:number|null=null,lastLow:number|null=null,state=0,segmentStart=0;
- const length=Math.max(1,Math.floor(study.atrLength)),len=Math.max(1,Math.floor(p.swingLength));
+ const first=Math.max(0,last-p.lookback+1),n=last+1,atr=new Array<number|null>(n).fill(null),hi=new Array<number|null>(n).fill(null),lo=new Array<number|null>(n).fill(null),trend=new Int8Array(n),shift=new Int8Array(n),prevTrend=new Int8Array(n);let seed=0,a:number|null=null;
+ const length=Math.max(1,Math.floor(study.atrLength)),len=Math.max(1,Math.floor(p.swingLength)),structure=createStructureEngine(bars,len);
  // Include all available prefix for ATR and confirmed pivots; never inspect a future bar.
  for(let i=0;i<=last;i++){
-  const c=bars[i],prev=bars[i-1];if(prev&&c.time-prev.time!==minutes*60){segmentStart=i;lastHigh=null;lastLow=null;state=0;}const tr=prev?Math.max(c.high-c.low,Math.abs(c.high-prev.close),Math.abs(c.low-prev.close)):c.high-c.low;
+  const c=bars[i],prev=bars[i-1];const tr=prev?Math.max(c.high-c.low,Math.abs(c.high-prev.close),Math.abs(c.low-prev.close)):c.high-c.low;
   if(i<length){seed+=tr;if(i===length-1)a=seed/length;}else if(a!==null)a=(a*(length-1)+tr)/length;atr[i]=a;
-  const j=i-len;if(j-len>=segmentStart){let ph=true,pl=true;for(let k=j-len;k<=i;k++){if(k===j)continue;if(bars[k].high>=bars[j].high)ph=false;if(bars[k].low<=bars[j].low)pl=false;}if(ph)lastHigh=bars[j].high;if(pl)lastLow=bars[j].low;}
-  prevTrend[i]=state;const up=prev&&lastHigh!==null&&prev.close<=lastHigh&&c.close>lastHigh,down=prev&&lastLow!==null&&prev.close>=lastLow&&c.close<lastLow;
-  if(up){if(state===-1)shift[i]=1;state=1;}else if(down){if(state===1)shift[i]=-1;state=-1;}trend[i]=state;hi[i]=lastHigh;lo[i]=lastLow;
+  const event=structure.step(i),state=structure.state;prevTrend[i]=event.priorTrend;shift[i]=event.shift;trend[i]=state.trend;hi[i]=state.hi;lo[i]=state.lo;
  }
  const zones:QuickZone[]=[],active:QuickZone[]=[];const span=minutes*60;
  for(let i=Math.max(2,first);i<=last;i++){
