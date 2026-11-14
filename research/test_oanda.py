@@ -64,3 +64,37 @@ class TimeframeTests(unittest.TestCase):
   self.assertEqual(len(result['candles']),100)
   self.assertTrue(result['analysisAvailable'])
   self.assertIn('derived',result['warning'])
+
+class IncrementalHistoryTests(unittest.TestCase):
+ def test_before_filters_boundary_and_accepts_exhaustion(self):
+  from run import oanda
+  base=1704067200;data=[]
+  for i in range(50):
+   ts=datetime.fromtimestamp(base+i*300,timezone.utc).isoformat().replace('+00:00','Z')
+   data.append({'time':ts,'complete':True,'mid':{'o':'10','h':'11','l':'9','c':'10'}})
+  def mock(req,timeout):
+   q=parse_qs(urlparse(req.full_url).query);to=q.get('to',[None])[0];n=int(q['count'][0]);return Reply([c for c in data if to is None or c['time']<=to][-n:])
+  with patch.dict('os.environ',{'OANDA_API_TOKEN':'fake'}),patch('urllib.request.urlopen',mock):
+   rows=oanda(5,10,before=base+30*300,allow_empty=True)
+   empty=oanda(5,10,before=base,allow_empty=True)
+  self.assertEqual(len(rows),10);self.assertLess(rows[-1]['time'],base+30*300);self.assertEqual(empty,[])
+ def test_snapshot_incremental_uses_stored_settings(self):
+  import tempfile,io,run
+  start=1704067200
+  def bars(start_index,n):return [{'time':start+300*i,'open':10,'high':11,'low':9,'close':10} for i in range(start_index,start_index+n)]
+  with tempfile.TemporaryDirectory() as folder,patch.object(run,'__file__',folder+'/run.py'):
+   def call(req):
+    with patch('sys.stdin',io.StringIO(json.dumps(req))),patch('sys.stdout',new_callable=io.StringIO) as out:
+     run.main();return json.loads(out.getvalue())
+   with patch('run.oanda',return_value=bars(5000,100)):
+    first=call({'source':'oanda','minutes':5,'count':100,'threshold':72})
+   with patch('run.oanda',return_value=bars(0,5000)) as fetch:
+    next=call({'mode':'older','runId':first['runId'],'threshold':50})
+   fetch.assert_called_once_with(5,5000,before=first['candles'][0]['time'],allow_empty=True)
+   self.assertEqual(next['olderAdded'],5000);self.assertEqual(len(next['candles']),5100)
+   self.assertEqual(next['candles'][5000:],first['candles']);self.assertFalse(next['historyExhausted'])
+   import sqlite3
+   with sqlite3.connect(folder+'/data/runs.sqlite3') as db:
+    settings=json.loads(db.execute('select settings from runs where id=?',(next['runId'],)).fetchone()[0])
+   db.close()
+   self.assertEqual(settings['threshold'],72)

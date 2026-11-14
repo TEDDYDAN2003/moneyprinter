@@ -27,6 +27,12 @@ npx next dev --hostname 127.0.0.1 --port 3000
 
 The bridge is disabled unless explicitly enabled, and rejects non-local Host and mismatched Origin. These header checks are not a substitute for binding the server to loopback; do not use npm run dev (which binds to all interfaces) for this feature. The OANDA token stays on the server process, not the browser. Use local development only; do not add this token to deployed environment variables. API credentials should be revoked immediately if exposed.
 
+## Automatic older history
+
+OANDA starts with 5,000 candles by default. As you pan near the left edge, the app requests up to 5,000 older completed candles at a time from the oldest candle in the existing local snapshot, deduplicates the boundary, and prepends them. It keeps the selected candle and viewport in place, recomputes the scoring and backtest using the stored settings from the original run, and stops when OANDA returns no more data or the 50,000-candle per-run cap is reached. A network error can be retried. The 45-minute chart is built from 15-minute source bars, so it can require three times as many requests. Automatic history is not enabled for synthetic demonstration data.
+
+Adding history can change calculations at existing candles because they now have more prior context, and it moves the exploratory 60/20/20 split. Each expanded run is saved as another snapshot and uses local disk space. Neither its displayed test partition nor a manually tuned result should be treated as a genuinely untouched final test. Dataset expansion does not update the newest/live candles; use Load & analyse for a fresh snapshot.
+
 ## What this prototype does
 
 - Produces a zoomable candlestick chart for the latest completed 1m, 3m, 5m, 15m, 30m, 45m, 1h, daily or weekly bars. Click a candle to see the causal score. Use **Maximize chart** (or Esc to exit) for browser fullscreen. Active FVG boundaries at the selected candle are shown as dashed lines.
