@@ -1,115 +1,1448 @@
 "use client";
-import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
-import { Activity,Beaker,ChartCandlestick,Download,RefreshCw,ShieldAlert,Maximize2,Minimize2,History,Info } from "lucide-react";
-import {IndicatorEditor, type IndicatorProgram} from "./IndicatorEditor";
-import type {Plan} from "@/lib/replay";
-import {ResearchInfo} from "./ResearchInfo";
-import {FvgClusters} from "./FvgClusters";
-import {FvgQuickPanel} from "./FvgQuickPanel";
-import {runFvgQuick,quickDefaults,defaultStudy,type StudyOptions} from "@/lib/fvgQuick";
-import {ReplayPanel} from "./ReplayPanel";
-import {IndicatorOverlay} from "./IndicatorOverlay";
-import {noWickInputs} from "@/lib/indicators/no-wick";
-import {fvgReactionInputs} from "@/lib/indicators/fvg-reaction";
-import type {IndicatorInput} from "./IndicatorEditor";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  Award,
+  Beaker,
+  ChartCandlestick,
+  CheckCircle2,
+  Crosshair,
+  Download,
+  History,
+  Info,
+  Layers,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  ShieldAlert,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+import { IndicatorEditor, type IndicatorProgram } from "./IndicatorEditor";
+import type { Plan } from "@/lib/replay";
+import { ResearchInfo } from "./ResearchInfo";
+import { FvgClusters } from "./FvgClusters";
+import { FvgQuickPanel } from "./FvgQuickPanel";
+import { runFvgQuick, quickDefaults, defaultStudy, type StudyOptions } from "@/lib/fvgQuick";
+import { ReplayPanel } from "./ReplayPanel";
+import { IndicatorOverlay } from "./IndicatorOverlay";
+import { noWickInputs } from "@/lib/indicators/no-wick";
+import { fvgReactionInputs } from "@/lib/indicators/fvg-reaction";
+import type { IndicatorInput } from "./IndicatorEditor";
+import { TradeProgressGauge, type TradeSetup } from "./TradeProgressGauge";
+import { OptimizationModal, type OptimizationCandidate } from "./OptimizationModal";
 
-type Bar={time:number;open:number;high:number;low:number;close:number};
-type Metric={bull:number;bear:number;max:number;explanation:string};
-type Zone={from:number;created:number;top:number;bottom:number;direction:number;status:string};
-type Result={time:number;bull:number|null;bear:number|null;net:number|null;classification:string;ready:boolean;htf:number;mtf:number;ltf:number;break:string;sweep:string;atr:number|null;equilibrium:number|null;metrics:Record<string,Metric>;zones:Zone[];conflict:boolean};
-type Perf={trades:number;wins:number;winRate:number|null;netR:number;maxDrawdownR:number;expectancyR:number|null};
-type Data={runId:string;olderAdded:number;historyExhausted:boolean;analysisAvailable:boolean;source:string;symbol:string;minutes:number;candles:Bar[];results:Result[];backtest:Record<string,Perf>;warning:string};
-const titles:Record<string,string>={htf:"Higher timeframe bias",structure:"Market structure",liquidity:"Liquidity reclaim",displacement:"Displacement",fvg:"FVG quality",position:"Premium / discount",candle:"Candlestick",session:"Session context"};
-const initial:Record<string,number>={htf:20,structure:15,liquidity:15,displacement:15,fvg:15,position:10,candle:5,session:5};
-const panel="rounded-2xl border border-slate-800/90 bg-[#101722]";
-const field="rounded-lg border border-slate-700 bg-[#0b111a] px-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500";
-const bias=(v:number)=>v===1?"Bullish":v===-1?"Bearish":"Mixed";
-const tfLabel=(n:number)=>n===1440?'1D':n===10080?'1W':n>=60&&n%60===0?(n/60)+'h':n+'m';
-type LogicalViewport={from:number;to:number};
-function PriceChart({data,selected,onSelect,program,onStatus,onViewport,restoreRef,plan,replaying,follow,onDetach,onZoneClick}:{data:Data;selected:number;onSelect:(n:number)=>void;program:IndicatorProgram|null;onStatus:(s:string)=>void;onViewport:(range:LogicalViewport)=>void;restoreRef:React.MutableRefObject<LogicalViewport|null>;plan:Plan|null;replaying:boolean;follow:boolean;onDetach:()=>void;onZoneClick:(i:number,price:number)=>boolean}){
- const ref=useRef<HTMLDivElement>(null);const replayRef=useRef({replaying,follow,onDetach});replayRef.current={replaying,follow,onDetach};const priorData=useRef({length:data.candles.length,replaying:false,follow:true});const seriesRef=useRef<import('lightweight-charts').ISeriesApi<'Candlestick'>|null>(null);const chartRef=useRef<import('lightweight-charts').IChartApi|null>(null);const overlays=useRef<import('lightweight-charts').ISeriesApi<'Line'>[]>([]);const [ready,setReady]=useState(0);const dataRef=useRef(data);dataRef.current=data;const selectRef=useRef(onSelect);selectRef.current=onSelect;const zoneClickRef=useRef(onZoneClick);zoneClickRef.current=onZoneClick;const viewportCallback=useRef(onViewport);viewportCallback.current=onViewport;
- useEffect(()=>{let disposed=false,chart:import('lightweight-charts').IChartApi|undefined;let observer:ResizeObserver|undefined;
-  (async()=>{const lib=await import('lightweight-charts');if(disposed||!ref.current)return;const node=ref.current;
-   const chartHeight=()=>document.fullscreenElement===node.closest('[data-research-chart]')?Math.max(300,window.innerHeight-125):Math.max(580,Math.min(900,window.innerHeight-170));
-   chart=lib.createChart(node,{width:node.clientWidth,height:chartHeight(),layout:{background:{color:'#0b111a'},textColor:'#94a3b8'},grid:{vertLines:{color:'#172130'},horzLines:{color:'#172130'}},rightPriceScale:{borderColor:'#253346'},timeScale:{borderColor:'#253346',timeVisible:true,secondsVisible:false},crosshair:{mode:lib.CrosshairMode.Normal}});
-   const series=chart.addCandlestickSeries({upColor:'#10b981',downColor:'#f06468',borderUpColor:'#10b981',borderDownColor:'#f06468',wickUpColor:'#10b981',wickDownColor:'#f06468'});
-   series.setData(data.candles.map(c=>({...c,time:c.time as import('lightweight-charts').UTCTimestamp})));seriesRef.current=series;chartRef.current=chart;setReady(v=>v+1);
-   const initial=restoreRef.current||{from:Math.max(0,data.candles.length-120),to:data.candles.length+8};restoreRef.current=null;chart.timeScale().setVisibleLogicalRange({from:initial.from as import('lightweight-charts').Logical,to:initial.to as import('lightweight-charts').Logical});chart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range)viewportCallback.current({from:range.from,to:range.to});});chart.subscribeClick(param=>{if(typeof param.time==='number'){const i=dataRef.current.candles.findIndex(c=>c.time===param.time);if(i>=0){const price=param.point?series.coordinateToPrice(param.point.y):null;if(price===null||!zoneClickRef.current(i,price))selectRef.current(i);}}});
-   let downX:number|null=null;const down=(e:PointerEvent)=>{downX=e.clientX;};const move=(e:PointerEvent)=>{if(downX!==null&&Math.abs(e.clientX-downX)>4&&replayRef.current.replaying){replayRef.current.onDetach();downX=null;}};const up=()=>{downX=null;};node.addEventListener('pointerdown',down);window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);
-   const resize=()=>{chart?.applyOptions({width:node.clientWidth,height:chartHeight()});node.style.height=chartHeight()+'px';};resize();observer=new ResizeObserver(resize);observer.observe(node);window.addEventListener('resize',resize);document.addEventListener('fullscreenchange',resize);(node as HTMLDivElement & {__resize?:()=>void;__pointerCleanup?:()=>void}).__resize=resize;(node as HTMLDivElement & {__pointerCleanup?:()=>void}).__pointerCleanup=()=>{node.removeEventListener('pointerdown',down);window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);};
-  })();return()=>{disposed=true;observer?.disconnect();if(ref.current){const cleanup=(ref.current as HTMLDivElement & {__resize?:()=>void}).__resize;if(cleanup){window.removeEventListener('resize',cleanup);document.removeEventListener('fullscreenchange',cleanup);} (ref.current as HTMLDivElement & {__pointerCleanup?:()=>void}).__pointerCleanup?.();}chartRef.current=null;seriesRef.current=null;overlays.current=[];chart?.remove();};
- },[data.runId]);
- useEffect(()=>{const series=seriesRef.current,chart=chartRef.current;if(!series||!chart)return;const prev=priorData.current,range=chart.timeScale().getVisibleLogicalRange(),entering=replaying&&!prev.replaying,leaving=!replaying&&prev.replaying;series.setData(data.candles.map(c=>({...c,time:c.time as import('lightweight-charts').UTCTimestamp})));if(data.candles.length){if(entering||leaving||(replaying&&follow&&!prev.follow)){const end=data.candles.length;chart.timeScale().setVisibleLogicalRange({from:Math.max(0,end-120) as import('lightweight-charts').Logical,to:(end+8) as import('lightweight-charts').Logical});}else if(range){const shift=replaying&&follow?data.candles.length-prev.length:0;chart.timeScale().setVisibleLogicalRange({from:(range.from+shift) as import('lightweight-charts').Logical,to:(range.to+shift) as import('lightweight-charts').Logical});}}priorData.current={length:data.candles.length,replaying,follow};},[data.candles,replaying,follow]);
- useEffect(()=>{const chart=chartRef.current;if(!chart)return;for(const x of overlays.current)chart.removeSeries(x);overlays.current=[];const result=data.results[selected];if(!result||program)return;
-  for(const zone of result.zones.slice(-12))for(const price of [zone.top,zone.bottom]){const s=chart.addLineSeries({color:zone.direction===1?'#10b981':'#f06468',lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});const start=data.candles[zone.created]?.time,end=data.candles[selected]?.time;if(start===undefined||end===undefined){chart.removeSeries(s);continue;}s.setData(start===end?[{time:start as import('lightweight-charts').UTCTimestamp,value:price}]:[{time:start as import('lightweight-charts').UTCTimestamp,value:price},{time:end as import('lightweight-charts').UTCTimestamp,value:price}]);overlays.current.push(s);}
- },[selected,data,ready,program]);
- useEffect(()=>{const series=seriesRef.current;if(!series||!plan)return;const lines=[series.createPriceLine({price:plan.entry,color:'#a3a3a3',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'Entry'}),series.createPriceLine({price:plan.target,color:'#10b981',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'TP'}),series.createPriceLine({price:plan.stop,color:'#f06468',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'SL'})];return()=>{for(const line of lines)try{series.removePriceLine(line);}catch{}};},[plan,ready]);
- return <div className="relative"><div ref={ref} className="w-full overflow-hidden rounded-b-2xl"/>{ready>0&&program&&chartRef.current&&seriesRef.current&&ref.current&&<IndicatorOverlay chart={chartRef.current} series={seriesRef.current} node={ref.current} bars={data.candles} program={program} onStatus={onStatus}/>}<div className="pointer-events-none absolute bottom-3 left-3 rounded bg-slate-950/80 px-2 py-1 text-[10px] text-slate-400">Scroll to zoom · drag to pan · click candle · dashed lines show active FVG edges</div></div>;
+type Bar = { time: number; open: number; high: number; low: number; close: number };
+type Metric = { bull: number; bear: number; max: number; explanation: string };
+type Zone = { from: number; created: number; top: number; bottom: number; direction: number; status: string };
+type Result = {
+  time: number;
+  bull: number | null;
+  bear: number | null;
+  net: number | null;
+  classification: string;
+  ready: boolean;
+  htf: number;
+  mtf: number;
+  ltf: number;
+  break: string;
+  sweep: string;
+  atr: number | null;
+  equilibrium: number | null;
+  pattern?: string;
+  pattern_dir?: number;
+  pattern_conf?: number;
+  metrics: Record<string, Metric>;
+  zones: Zone[];
+  conflict: boolean;
+};
+type Perf = {
+  trades: number;
+  wins: number;
+  winRate: number | null;
+  netR: number;
+  maxDrawdownR: number;
+  expectancyR: number | null;
+  profitFactor?: number | null;
+  tradeList?: TradeSetup[];
+  excluded?: Record<string, number>;
+};
+type Data = {
+  runId: string;
+  olderAdded: number;
+  historyExhausted: boolean;
+  analysisAvailable: boolean;
+  source: string;
+  symbol: string;
+  minutes: number;
+  candles: Bar[];
+  results: Result[];
+  backtest: Record<string, Perf>;
+  optimization?: OptimizationCandidate[] | null;
+  warning: string;
+};
+
+const titles: Record<string, string> = {
+  htf: "Higher timeframe bias",
+  structure: "Market structure",
+  liquidity: "Liquidity reclaim",
+  displacement: "Displacement",
+  fvg: "FVG quality",
+  position: "Premium / discount",
+  candle: "Candlestick pattern",
+  session: "Session context",
+};
+const initial: Record<string, number> = {
+  htf: 20,
+  structure: 15,
+  liquidity: 15,
+  displacement: 15,
+  fvg: 15,
+  position: 10,
+  candle: 5,
+  session: 5,
+};
+const panel = "rounded-2xl border border-slate-800/90 bg-[#101722]";
+const field =
+  "rounded-lg border border-slate-700 bg-[#0b111a] px-3 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500";
+const bias = (v: number) => (v === 1 ? "Bullish" : v === -1 ? "Bearish" : "Mixed");
+const tfLabel = (n: number) =>
+  n === 1440 ? "1D" : n === 10080 ? "1W" : n >= 60 && n % 60 === 0 ? n / 60 + "h" : n + "m";
+type LogicalViewport = { from: number; to: number };
+
+function PriceChart({
+  data,
+  selected,
+  onSelect,
+  program,
+  onStatus,
+  onViewport,
+  restoreRef,
+  plan,
+  replaying,
+  follow,
+  onDetach,
+  onZoneClick,
+  activeTrade,
+  showTradeOverlays,
+}: {
+  data: Data;
+  selected: number;
+  onSelect: (n: number) => void;
+  program: IndicatorProgram | null;
+  onStatus: (s: string) => void;
+  onViewport: (range: LogicalViewport) => void;
+  restoreRef: React.MutableRefObject<LogicalViewport | null>;
+  plan: Plan | null;
+  replaying: boolean;
+  follow: boolean;
+  onDetach: () => void;
+  onZoneClick: (i: number, price: number) => boolean;
+  activeTrade: TradeSetup | null;
+  showTradeOverlays: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const replayRef = useRef({ replaying, follow, onDetach });
+  replayRef.current = { replaying, follow, onDetach };
+  const priorData = useRef({ length: data.candles.length, replaying: false, follow: true });
+  const seriesRef = useRef<import("lightweight-charts").ISeriesApi<"Candlestick"> | null>(null);
+  const chartRef = useRef<import("lightweight-charts").IChartApi | null>(null);
+  const overlays = useRef<import("lightweight-charts").ISeriesApi<"Line">[]>([]);
+  const [ready, setReady] = useState(0);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const selectRef = useRef(onSelect);
+  selectRef.current = onSelect;
+  const zoneClickRef = useRef(onZoneClick);
+  zoneClickRef.current = onZoneClick;
+  const viewportCallback = useRef(onViewport);
+  viewportCallback.current = onViewport;
+
+  useEffect(() => {
+    let disposed = false,
+      chart: import("lightweight-charts").IChartApi | undefined;
+    let observer: ResizeObserver | undefined;
+    (async () => {
+      const lib = await import("lightweight-charts");
+      if (disposed || !ref.current) return;
+      const node = ref.current;
+      const chartHeight = () =>
+        document.fullscreenElement === node.closest("[data-research-chart]")
+          ? Math.max(300, window.innerHeight - 125)
+          : Math.max(580, Math.min(900, window.innerHeight - 170));
+      chart = lib.createChart(node, {
+        width: node.clientWidth,
+        height: chartHeight(),
+        layout: { background: { color: "#0b111a" }, textColor: "#94a3b8" },
+        grid: { vertLines: { color: "#172130" }, horzLines: { color: "#172130" } },
+        rightPriceScale: { borderColor: "#253346" },
+        timeScale: { borderColor: "#253346", timeVisible: true, secondsVisible: false },
+        crosshair: { mode: lib.CrosshairMode.Normal },
+      });
+      const series = chart.addCandlestickSeries({
+        upColor: "#10b981",
+        downColor: "#f06468",
+        borderUpColor: "#10b981",
+        borderDownColor: "#f06468",
+        wickUpColor: "#10b981",
+        wickDownColor: "#f06468",
+      });
+      series.setData(data.candles.map((c) => ({ ...c, time: c.time as import("lightweight-charts").UTCTimestamp })));
+      seriesRef.current = series;
+      chartRef.current = chart;
+      setReady((v) => v + 1);
+      const initial = restoreRef.current || { from: Math.max(0, data.candles.length - 120), to: data.candles.length + 8 };
+      restoreRef.current = null;
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: initial.from as import("lightweight-charts").Logical, to: initial.to as import("lightweight-charts").Logical });
+      chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (range) viewportCallback.current({ from: range.from, to: range.to });
+      });
+      chart.subscribeClick((param) => {
+        if (typeof param.time === "number") {
+          const i = dataRef.current.candles.findIndex((c) => c.time === param.time);
+          if (i >= 0) {
+            const price = param.point ? series.coordinateToPrice(param.point.y) : null;
+            if (price === null || !zoneClickRef.current(i, price)) selectRef.current(i);
+          }
+        }
+      });
+      let downX: number | null = null;
+      const down = (e: PointerEvent) => {
+        downX = e.clientX;
+      };
+      const move = (e: PointerEvent) => {
+        if (downX !== null && Math.abs(e.clientX - downX) > 4 && replayRef.current.replaying) {
+          replayRef.current.onDetach();
+          downX = null;
+        }
+      };
+      const up = () => {
+        downX = null;
+      };
+      node.addEventListener("pointerdown", down);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      const resize = () => {
+        chart?.applyOptions({ width: node.clientWidth, height: chartHeight() });
+        node.style.height = chartHeight() + "px";
+      };
+      resize();
+      observer = new ResizeObserver(resize);
+      observer.observe(node);
+      window.addEventListener("resize", resize);
+      document.addEventListener("fullscreenchange", resize);
+      (node as HTMLDivElement & { __resize?: () => void; __pointerCleanup?: () => void }).__resize = resize;
+      (node as HTMLDivElement & { __pointerCleanup?: () => void }).__pointerCleanup = () => {
+        node.removeEventListener("pointerdown", down);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+    })();
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      if (ref.current) {
+        const cleanup = (ref.current as HTMLDivElement & { __resize?: () => void }).__resize;
+        if (cleanup) {
+          window.removeEventListener("resize", cleanup);
+          document.removeEventListener("fullscreenchange", cleanup);
+        }
+        (ref.current as HTMLDivElement & { __pointerCleanup?: () => void }).__pointerCleanup?.();
+      }
+      chartRef.current = null;
+      seriesRef.current = null;
+      overlays.current = [];
+      chart?.remove();
+    };
+  }, [data.runId]);
+
+  useEffect(() => {
+    const series = seriesRef.current,
+      chart = chartRef.current;
+    if (!series || !chart) return;
+    const prev = priorData.current,
+      range = chart.timeScale().getVisibleLogicalRange(),
+      entering = replaying && !prev.replaying,
+      leaving = !replaying && prev.replaying;
+    series.setData(data.candles.map((c) => ({ ...c, time: c.time as import("lightweight-charts").UTCTimestamp })));
+    if (data.candles.length) {
+      if (entering || leaving || (replaying && follow && !prev.follow)) {
+        const end = data.candles.length;
+        chart
+          .timeScale()
+          .setVisibleLogicalRange({ from: Math.max(0, end - 120) as import("lightweight-charts").Logical, to: (end + 8) as import("lightweight-charts").Logical });
+      } else if (range) {
+        const shift = replaying && follow ? data.candles.length - prev.length : 0;
+        chart
+          .timeScale()
+          .setVisibleLogicalRange({ from: (range.from + shift) as import("lightweight-charts").Logical, to: (range.to + shift) as import("lightweight-charts").Logical });
+      }
+    }
+    priorData.current = { length: data.candles.length, replaying, follow };
+  }, [data.candles, replaying, follow]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    for (const x of overlays.current) chart.removeSeries(x);
+    overlays.current = [];
+    const result = data.results[selected];
+    if (!result || program) return;
+    for (const zone of result.zones.slice(-12))
+      for (const price of [zone.top, zone.bottom]) {
+        const s = chart.addLineSeries({
+          color: zone.direction === 1 ? "#10b981" : "#f06468",
+          lineWidth: 1,
+          lineStyle: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        const start = data.candles[zone.created]?.time,
+          end = data.candles[selected]?.time;
+        if (start === undefined || end === undefined) {
+          chart.removeSeries(s);
+          continue;
+        }
+        s.setData(
+          start === end
+            ? [{ time: start as import("lightweight-charts").UTCTimestamp, value: price }]
+            : [
+                { time: start as import("lightweight-charts").UTCTimestamp, value: price },
+                { time: end as import("lightweight-charts").UTCTimestamp, value: price },
+              ]
+        );
+        overlays.current.push(s);
+      }
+  }, [selected, data, ready, program]);
+
+  // Visual trade setup price lines (Entry, TP, SL)
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !showTradeOverlays || !activeTrade) return;
+    const isLong = activeTrade.direction === 1;
+    const lines = [
+      series.createPriceLine({
+        price: activeTrade.entry,
+        color: "#38bdf8",
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `Entry (${isLong ? "BUY" : "SELL"}) $${activeTrade.entry.toFixed(2)}`,
+      }),
+      series.createPriceLine({
+        price: activeTrade.tp,
+        color: "#10b981",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `Target TP (+${activeTrade.rr.toFixed(1)}R) $${activeTrade.tp.toFixed(2)}`,
+      }),
+      series.createPriceLine({
+        price: activeTrade.sl,
+        color: "#f43f5e",
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `Stop Loss (-1.0R) $${activeTrade.sl.toFixed(2)}`,
+      }),
+    ];
+    return () => {
+      for (const line of lines) {
+        try {
+          series.removePriceLine(line);
+        } catch {}
+      }
+    };
+  }, [activeTrade, showTradeOverlays, ready]);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !plan) return;
+    const lines = [
+      series.createPriceLine({ price: plan.entry, color: "#a3a3a3", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Entry" }),
+      series.createPriceLine({ price: plan.target, color: "#10b981", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "TP" }),
+      series.createPriceLine({ price: plan.stop, color: "#f06468", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "SL" }),
+    ];
+    return () => {
+      for (const line of lines)
+        try {
+          series.removePriceLine(line);
+        } catch {}
+    };
+  }, [plan, ready]);
+
+  return (
+    <div className="relative">
+      <div ref={ref} className="w-full overflow-hidden rounded-b-2xl" />
+      {ready > 0 && program && chartRef.current && seriesRef.current && ref.current && (
+        <IndicatorOverlay
+          chart={chartRef.current}
+          series={seriesRef.current}
+          node={ref.current}
+          bars={data.candles}
+          program={program}
+          onStatus={onStatus}
+        />
+      )}
+      <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-slate-950/80 px-2 py-1 text-[10px] text-slate-400">
+        Scroll to zoom · drag to pan · click candle · cyan/green/red lines show hypothetical entry, TP & SL
+      </div>
+    </div>
+  );
 }
-export function ResearchDesk(){
- const chartSection=useRef<HTMLElement>(null),[maximized,setMaximized]=useState(false),[fullscreenError,setFullscreenError]=useState('');
- useEffect(()=>{const changed=()=>setMaximized(document.fullscreenElement===chartSection.current);document.addEventListener('fullscreenchange',changed);return()=>document.removeEventListener('fullscreenchange',changed);},[]);
- async function toggleFullscreen(){try{setFullscreenError('');if(document.fullscreenElement===chartSection.current)await document.exitFullscreen();else await chartSection.current?.requestFullscreen();}catch{setFullscreenError('Fullscreen is unavailable in this browser.');}}
- const [infoOpen,setInfoOpen]=useState(false),[clusterExpanded,setClusterExpanded]=useState(true);
- const [replayOpen,setReplayOpen]=useState(false),[replayCursor,setReplayCursor]=useState<number|null>(null),[replayPlan,setReplayPlan]=useState<Plan|null>(null),[replayFollow,setReplayFollow]=useState(true);
- const replayCursorChanged=useCallback((i:number|null)=>{setReplayCursor(i);if(i!==null)setSelected(i)},[]);
- const [quickParams,setQuickParams]=useState(quickDefaults),[quickOpen,setQuickOpen]=useState(false),[quickSelected,setQuickSelected]=useState<number|null>(null);
- const [program,setProgram]=useState<IndicatorProgram|null>(null),[indicatorStatus,setIndicatorStatus]=useState(''),[preset,setPreset]=useState('none'),[settingsOpen,setSettingsOpen]=useState(false);
- useEffect(()=>{if(preset==='no-wick'&&typeof program?.inputs.intLen==='number'&&typeof program.inputs.extLen==='number'){const inner=Math.max(1,Math.min(30,Math.floor(program.inputs.intLen))),outer=Math.max(2,Math.min(100,Math.floor(program.inputs.extLen)));setQuickParams(v=>v.swingLength===inner&&v.externalLength===outer?v:{...v,swingLength:inner,externalLength:outer});}},[preset,program]);
- const [data,setData]=useState<Data|null>(null),[source,setSource]=useState('sample'),[minutes,setMinutes]=useState(5),[count,setCount]=useState(5000),[selected,setSelected]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState(''),[weights,setWeights]=useState(initial),[threshold,setThreshold]=useState(65),[rr,setRr]=useState(1.5),[stopAtr,setStopAtr]=useState(1),[horizon,setHorizon]=useState(20),[cost,setCost]=useState(0);
- const latest=useRef<Data|null>(null),selectedRef=useRef(0),viewportRef=useRef<LogicalViewport|null>(null),restoreRef=useRef<LogicalViewport|null>(null),generation=useRef(0),olderBusy=useRef(false),historyBlocked=useRef(false);
- const [olderLoading,setOlderLoading]=useState(false),[olderNotice,setOlderNotice]=useState('');
- latest.current=data;selectedRef.current=selected;
- const load=useCallback(async()=>{setReplayOpen(false);setReplayCursor(null);setReplayPlan(null);generation.current++;historyBlocked.current=false;restoreRef.current=null;setOlderNotice('');setError('');setLoading(true);try{const res=await fetch('/api/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source,minutes,count,weights,threshold,rr,stopAtr,horizon,cost})});const value=await res.json();if(!res.ok)throw Error(value.error||'Could not load data');latest.current=value;setData(value);setSelected(value.candles.length-1);if(!value.analysisAvailable){setProgram(null);setPreset('none');setIndicatorStatus('');}}catch(e){setError(e instanceof Error?e.message:'Failed');}finally{setLoading(false);}},[source,minutes,count,weights,threshold,rr,stopAtr,horizon,cost]);
- const loadOlder=useCallback(async(force=false)=>{
-  const current=latest.current;if(!current||current.source!=='oanda'||olderBusy.current||loading)return;
-  if(current.candles.length>=50000){setOlderNotice('50,000-candle limit reached.');return;}
-  if(current.historyExhausted){setOlderNotice('No more history was returned by OANDA.');return;}
-  if(historyBlocked.current&&!force)return;
-  historyBlocked.current=false;olderBusy.current=true;setOlderLoading(true);setOlderNotice('Loading older candles and recalculating…');const version=generation.current;
-  try{
-   const response=await fetch('/api/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'older',runId:current.runId})});
-   const value:Data&{error?:string}=await response.json();if(!response.ok)throw Error(value.error||'Could not load older candles.');
-   if(version!==generation.current||latest.current?.runId!==current.runId)return;
-   if(!value.olderAdded){restoreRef.current=viewportRef.current;latest.current={...current,historyExhausted:true};setData(latest.current);setOlderNotice('No older candles returned by OANDA.');return;}
-   const shift=value.candles.findIndex(x=>x.time===current.candles[0].time);if(shift<0)throw Error('Older history could not be aligned with the existing chart.');
-   const view=viewportRef.current;if(view)restoreRef.current={from:view.from+shift,to:view.to+shift};
-   const selectedTime=current.candles[selectedRef.current]?.time,newIndex=value.candles.findIndex(x=>x.time===selectedTime);
-   latest.current=value;setData(value);setSelected(newIndex>=0?newIndex:shift);
-   setOlderNotice(value.historyExhausted?`Added ${value.olderAdded.toLocaleString()} older candles; no further data returned.`:`Added ${value.olderAdded.toLocaleString()} older candles · analysis recalculated.`);
-  }catch(e){if(version===generation.current){historyBlocked.current=true;setOlderNotice((e instanceof Error?e.message:'Could not load older candles.')+' Use Retry older history.');}}
-  finally{olderBusy.current=false;setOlderLoading(false);}
- },[loading]);
- const viewportChanged=useCallback((range:LogicalViewport)=>{viewportRef.current=range;if(replayCursor===null&&!replayOpen&&range.from<=150)void loadOlder();},[loadOlder,replayCursor,replayOpen]);
- const chartData=useMemo(()=>!data||replayCursor===null?data:{...data,candles:data.candles.slice(0,replayCursor+1),results:data.results.slice(0,replayCursor+1)},[data,replayCursor]);
- const studyOptions=useMemo<StudyOptions>(()=>{const x=program?.inputs||{};return {...defaultStudy,atrLength:typeof x.atrLength==='number'?x.atrLength:14,zoneLife:typeof x.zoneLife==='number'?x.zoneLife:100,minGapATR:typeof x.minGapATR==='number'?x.minGapATR:0,requireMid:typeof x.requireMid==='boolean'?x.requireMid:true,showBull:typeof x.showBull==='boolean'?x.showBull:true,showBear:typeof x.showBear==='boolean'?x.showBear:true}},[program]);
- const quickResult=useMemo(()=>data&&preset==='fvg-reaction'&&(clusterExpanded||quickOpen||quickSelected!==null)?runFvgQuick(data.candles,selected,data.minutes,quickParams,studyOptions):null,[data,selected,preset,quickParams,studyOptions,quickOpen,quickSelected,clusterExpanded]);
- const quickZones=useMemo(()=>quickResult?.zones.filter(z=>z.direction===1?studyOptions.showBull:studyOptions.showBear)||[],[quickResult,studyOptions]);
- const zoneClick=useCallback((i:number,price:number)=>{if(preset!=='fvg-reaction'||!data)return false;const candidates=quickResult?quickZones:runFvgQuick(data.candles,selected,data.minutes,quickParams,studyOptions).zones.filter(z=>z.direction===1?studyOptions.showBull:studyOptions.showBear);const maxDraw=typeof program?.inputs.maxDraw==='number'?Math.max(10,Math.min(500,Math.floor(program.inputs.maxDraw))):150;const z=candidates.slice(-maxDraw).reverse().find(z=>i>=z.created-2&&i<=z.end&&price>=z.bottom&&price<=z.top);if(!z)return false;setQuickSelected(z.id);return true;},[preset,quickZones,quickResult,data,selected,quickParams,studyOptions,program]);
- useEffect(()=>{setQuickSelected(null);setQuickOpen(false)},[data?.runId]);
- const r=data?.results[selected],c=data?.candles[selected],sum=Object.values(weights).reduce((a,b)=>a+b,0);
- function exportCsv(){if(!data)return;const text=['time,open,high,low,close,bull,bear,net,classification,ready',...data.candles.map((x,i)=>{const z=data.results[i];return [new Date(x.time*1000).toISOString(),x.open,x.high,x.low,x.close,z.bull,z.bear,z.net,z.classification,z.ready].join(',')})].join('\n');const url=URL.createObjectURL(new Blob([text],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='fvg-research-scores.csv';a.click();URL.revokeObjectURL(url);}
- return <div className="w-full space-y-5 px-1 py-3 md:px-2"><ResearchInfo open={infoOpen&&!maximized} onClose={()=>setInfoOpen(false)} inFullscreen={false}/>
-  <header className="flex flex-wrap items-end justify-between gap-4"><div><div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.2em] text-emerald-400"><Beaker size={14}/> Local research workspace</div><div className="flex items-center gap-3"><h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">FVG Confluence Lab</h1><button type="button" aria-label="Research metrics information" onClick={()=>setInfoOpen(true)} className="rounded-full border border-slate-700 p-1.5 text-slate-300 hover:text-white"><Info size={17}/></button></div><p className="mt-1 text-sm text-slate-400">Explore gold price history, confluence and hypothetical outcomes.</p></div><div className="flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300"><ShieldAlert size={14}/> Research only · no live orders</div></header>
-  <section className={`${panel} flex flex-wrap items-end gap-3 p-4`}>
-   <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Data source</span><select className={`${field} block`} value={source} onChange={e=>setSource(e.target.value)}><option value="sample">Synthetic demo (not gold)</option><option value="oanda">OANDA practice · XAU/USD</option></select></label>
-   <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Timeframe</span><select className={`${field} block`} value={minutes} onChange={e=>setMinutes(+e.target.value)}><option value={1}>1 minute</option><option value={3}>3 minutes</option><option value={5}>5 minutes</option><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={45}>45 minutes · derived</option><option value={60}>1 hour</option><option value={1440}>Daily · chart only</option><option value={10080}>Weekly · chart only</option></select></label>
-   <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Initial candles · max 50,000</span><input className={`${field} block w-24`} type="number" min="100" max="50000" value={count} onChange={e=>setCount(+e.target.value)} onBlur={()=>setCount(Math.min(50000,Math.max(100,count||100)))}/></label>
-   <button onClick={load} disabled={loading||sum!==100} className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"><RefreshCw size={14} className={loading?'animate-spin':''}/>{loading?'Loading and analysing…':'Load & analyse'}</button>
-   <button onClick={exportCsv} disabled={!data} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2.5 text-xs text-slate-300 disabled:opacity-40"><Download size={14}/> Export scores</button>
-  </section>
-  {error&&<div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>}
-  {!data?<div className={`${panel} flex min-h-[400px] flex-col items-center justify-center p-10 text-center`}><ChartCandlestick size={42} className="mb-4 text-emerald-500"/><h2 className="text-lg font-semibold">Start a research session</h2><p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">Load synthetic candles to explore, or connect your rotated OANDA token locally. See <code>research/README.md</code> for setup.</p></div>:<>
-   <div className={`rounded-xl border px-4 py-3 text-xs ${data.source==='sample'?'border-amber-500/25 bg-amber-500/10 text-amber-200':'border-sky-500/25 bg-sky-500/10 text-sky-200'}`}>{data.warning} Loaded {data.candles.length.toLocaleString()} bars, {new Date(data.candles[0].time*1000).toISOString().slice(0,16).replace('T',' ')} to {new Date(data.candles[data.candles.length-1].time*1000).toISOString().slice(0,16).replace('T',' ')} UTC. Scores are research heuristics—not probabilities, recommendations or orders.</div>
-   <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-    <section ref={chartSection} data-research-chart className={`${panel} min-w-0 overflow-hidden fullscreen:rounded-none fullscreen:bg-[#101722]`}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3"><div><span className="font-semibold text-white">{data.source==='sample'?'SYNTHETIC':'XAU / USD'}</span><span className="ml-3 text-xs text-slate-500">{tfLabel(data.minutes)} · {replayCursor===null?data.candles.length:replayCursor+1} completed candles</span></div><label className="flex items-center gap-2 text-xs text-slate-400">Indicator <select aria-label="Select indicator" value={preset} disabled={!data.analysisAvailable} onChange={e=>{const v=e.target.value;setPreset(v);if(v==='none'){setProgram(null);setIndicatorStatus('Indicator removed');}}} className="rounded-lg border border-slate-700 bg-[#0b111a] px-2 py-1.5 text-xs text-slate-200"><option value="none">None</option><option value="fvg-reaction">FVG Reaction Study</option><option value="no-wick">No-Wick Structure</option></select></label>{preset!=='none'&&<span className="text-[10px] text-slate-400">{indicatorStatus}</span>}<button type="button" aria-label="Chart research information" onClick={()=>setInfoOpen(true)} className="rounded-lg border border-slate-700 p-1.5 text-slate-300 hover:text-white"><Info size={16}/></button><button type="button" aria-label="Open backtest replay" disabled={!data.analysisAvailable} onClick={()=>{if(replayOpen){setReplayCursor(null);setReplayPlan(null);}setReplayOpen(v=>!v)}} className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 disabled:opacity-40"><History size={14}/> Backtest</button><button type="button" onClick={toggleFullscreen} aria-label={maximized?'Exit fullscreen':'Maximize chart'} className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:text-white">{maximized?<Minimize2 size={14}/>:<Maximize2 size={14}/>} {maximized?'Exit fullscreen':'Maximize chart'}</button><span className="font-mono text-xs text-slate-400">{c?new Date(c.time*1000).toISOString().replace('T',' ').slice(0,16)+' UTC':''}</span></div><div className="relative"><PriceChart data={chartData!} selected={selected} onSelect={replayCursor===null?setSelected:()=>{}} program={program} onStatus={setIndicatorStatus} onViewport={viewportChanged} restoreRef={restoreRef} plan={replayPlan} replaying={replayCursor!==null} follow={replayFollow} onDetach={()=>setReplayFollow(false)} onZoneClick={zoneClick}/>{replayOpen&&data.analysisAvailable&&<ReplayPanel bars={data.candles} results={data.results} minutes={data.minutes} selected={selected} onCursor={replayCursorChanged} onPlan={setReplayPlan} follow={replayFollow} onFollowChange={setReplayFollow} compact={preset==='fvg-reaction'&&clusterExpanded} onClose={()=>{setReplayPlan(null);setReplayOpen(false)}}/>} {['fvg-reaction','no-wick'].includes(preset)&&program&&<div className="absolute left-3 top-3 z-30"><div className="flex items-center gap-2 rounded-md bg-slate-950/90 px-3 py-2 text-xs text-slate-200"><span>{preset==='no-wick'?'No-Wick Structure':'FVG Reaction Study'}</span>{preset==='fvg-reaction'&&<button type="button" onClick={()=>setQuickOpen(true)} className="rounded px-1 hover:bg-slate-700">Parameters</button>}<button type="button" aria-label={preset==='no-wick'?'No-Wick Structure settings':'FVG Reaction Study settings'} aria-expanded={settingsOpen} onClick={()=>setSettingsOpen(v=>!v)} className="rounded px-1 hover:bg-slate-700">⚙ Settings</button><button type="button" aria-label={preset==='no-wick'?'Remove No-Wick Structure':'Remove FVG Reaction Study'} onClick={()=>{setProgram(null);setPreset('none');setSettingsOpen(false)}} className="rounded px-1 hover:bg-slate-700">✕</button></div>{settingsOpen&&<div role="dialog" aria-label={preset==='no-wick'?'No-Wick Structure settings':'FVG Reaction Study settings'} className="mt-1 max-h-[min(70vh,600px)] w-[min(92vw,360px)] overflow-auto rounded-lg border border-slate-700 bg-[#101722] p-4 shadow-xl"><div className="mb-3 flex justify-between text-sm font-semibold text-white"><span>Indicator settings</span><button onClick={()=>setSettingsOpen(false)} aria-label="Close indicator settings">✕</button></div><div className="grid gap-3">{((preset==='no-wick'?noWickInputs:fvgReactionInputs) as IndicatorInput[]).map(d=><label key={d.id} className="flex items-center justify-between gap-3 text-xs text-slate-300"><span>{d.name}</span>{d.type==='bool'?<input type="checkbox" checked={!!program.inputs[d.id]} onChange={e=>setProgram({...program,inputs:{...program.inputs,[d.id]:e.target.checked},revision:Date.now()})}/>:d.type==='select'?<select className={field} value={String(program.inputs[d.id])} onChange={e=>setProgram({...program,inputs:{...program.inputs,[d.id]:e.target.value},revision:Date.now()})}>{d.options?.map(o=><option key={o} value={o}>{o}</option>)}</select>:<input className={field+' w-32'} type={d.type==='color'?'color':d.type==='int'||d.type==='float'?'number':'text'} min={d.min} max={d.max} step={d.step||'any'} value={String(program.inputs[d.id])} onChange={e=>setProgram({...program,inputs:{...program.inputs,[d.id]:d.type==='int'||d.type==='float'?Number(e.target.value):e.target.value},revision:Date.now()})}/>}</label>)}</div></div>}</div>}{preset==='fvg-reaction'&&<FvgClusters zones={quickZones} params={quickParams} asOf={data.candles[selected].time} selectedId={quickSelected} expanded={clusterExpanded} onExpanded={setClusterExpanded} source={data.source} minutes={data.minutes} replayOpen={replayOpen} legacyTable={!!program?.inputs.showTable} bars={data.candles} study={studyOptions}/>}<ResearchInfo open={infoOpen&&maximized} onClose={()=>setInfoOpen(false)} inFullscreen/>{preset==='fvg-reaction'&&quickResult&&<FvgQuickPanel params={quickParams} zones={quickZones} bars={data.candles} first={quickResult.first} last={quickResult.last} selectedId={quickSelected} open={quickOpen} onOpen={setQuickOpen} onApply={setQuickParams} onClear={()=>setQuickSelected(null)}/>}</div><div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-400">Selected: {c&&<>O {c.open.toFixed(2)} · H {c.high.toFixed(2)} · L {c.low.toFixed(2)} · C {c.close.toFixed(2)}</>}{fullscreenError&&<span className="ml-3 text-rose-300">{fullscreenError}</span>}{data.source==='oanda'&&<span className="ml-3 text-sky-300">{olderLoading?'Loading older history…':olderNotice||'Pan left to load older candles automatically.'}</span>}{data.source==='oanda'&&!olderLoading&&olderNotice.includes('Retry older history')&&<button className="ml-2 underline text-amber-300" onClick={()=>void loadOlder(true)}>Retry older history</button>}</div></section>
-    <section className={`${panel} p-4`}><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400"><Activity size={14}/> Selected candle analysis</div>{r&&<><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-emerald-500/10 p-3"><span className="text-[10px] uppercase text-emerald-400">Bullish</span><div className="mt-1 text-2xl font-bold text-emerald-300">{r.bull??'—'}<span className="text-xs text-slate-500"> / 100</span></div></div><div className="rounded-xl bg-rose-500/10 p-3"><span className="text-[10px] uppercase text-rose-400">Bearish</span><div className="mt-1 text-2xl font-bold text-rose-300">{r.bear??'—'}<span className="text-xs text-slate-500"> / 100</span></div></div></div><div className="mt-3 rounded-xl border border-slate-700/60 p-3"><div className="flex justify-between text-sm"><strong>{r.classification}</strong><span className="font-mono text-slate-400">Net {r.net===null?'—':(r.net>0?'+':'')+r.net}</span></div><p className="mt-1 text-xs text-slate-500">{!data.analysisAvailable?'Chart only: calendar-aware scoring is not yet available.':r.conflict?'HTF and intermediate context conflict.':'Directional estimate; not an entry signal.'}</p></div><div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">{[[data.analysisAvailable?'HTF · '+tfLabel(data.minutes*12):'HTF',r.htf],[data.analysisAvailable?'MTF · '+tfLabel(data.minutes*3):'MTF',r.mtf],['LTF · '+tfLabel(data.minutes),r.ltf]].map(([label,n])=><div key={label} className="rounded-lg bg-slate-900 p-2"><div className="text-slate-500">{label}</div><div className="mt-1 text-slate-200">{data.analysisAvailable?bias(n as number):'—'}</div></div>)}</div><div className="mt-4 space-y-2 text-xs text-slate-400"><p>Structure: <span className="text-slate-200">{r.break}</span></p><p>Liquidity: <span className="text-slate-200">{r.sweep}</span></p><p>Active FVGs: <span className="text-slate-200">{data.analysisAvailable?r.zones.length:'—'}</span></p><p>ATR: <span className="text-slate-200">{r.atr?.toFixed(2)??'warming up'}</span></p></div></>}</section>
-   </div>
-   <div className="grid gap-4 xl:grid-cols-2"><section className={`${panel} p-5`}><div className="flex justify-between"><div><h2 className="font-semibold text-white">Confluence breakdown</h2><p className="mt-1 text-xs text-slate-500">Points per direction · selected candle</p></div><span className="text-xs text-slate-500">Bull / Bear</span></div><div className="mt-4 space-y-3">{!data.analysisAvailable&&<p className="text-xs text-amber-300">Breakdown unavailable on daily and weekly bars.</p>}{r&&Object.entries(r.metrics).map(([k,m])=><div key={k} className="border-b border-slate-800/60 pb-2"><div className="flex justify-between gap-2 text-xs"><span className="font-medium text-slate-200">{titles[k]}</span><span className="font-mono"><span className="text-emerald-400">{m.bull}</span><span className="text-slate-600"> / </span><span className="text-rose-400">{m.bear}</span><span className="text-slate-500"> of {m.max}</span></span></div><p className="mt-1 text-[11px] text-slate-500">{m.explanation}</p></div>)}</div></section>
-    <section className={`${panel} p-5`}><div className="flex items-center justify-between"><div><h2 className="font-semibold text-white">Chronological backtest</h2><p className="mt-1 text-xs text-slate-500">Exploratory 60% / 20% / 20%; final test must be held out</p></div><Beaker size={18} className="text-slate-500"/></div><div className="mt-4 overflow-x-auto">{!data.analysisAvailable&&<p className="mb-3 text-xs text-amber-300">Backtesting unavailable on daily and weekly bars.</p>}<table className="w-full text-left text-xs"><thead className="text-slate-500"><tr><th className="pb-3">Period</th><th>Trades</th><th>Win rate</th><th>Net R</th><th>Max DD</th></tr></thead><tbody>{(replayCursor===null?Object.entries(data.backtest):[]).map(([k,v])=><tr key={k} className="border-t border-slate-800"><td className="py-3 text-slate-300">{k}</td><td>{v.trades}</td><td>{v.winRate===null?'—':v.winRate+'%'}</td><td className={v.netR>=0?'text-emerald-400':'text-rose-400'}>{v.netR.toFixed(2)}R</td><td>{v.maxDrawdownR.toFixed(2)}R</td></tr>)}</tbody></table></div><p className="mt-4 text-xs leading-5 text-slate-500">Non-overlapping simulated trades; entry at signal close. First touch resolves the trade. Same-candle TP/SL ties, gaps and timeouts are excluded. Displayed test results are not unseen after tuning. Results aren’t execution or probability estimates.</p></section></div>
-  </>}
-  <IndicatorEditor hasData={!!data&&data.analysisAvailable} preset={preset} onApply={p=>{setProgram(p);if(!p)setPreset("none");setIndicatorStatus(p?"Compiling…":"Indicator removed");}} status={indicatorStatus}/>
-  <details className={`${panel} p-4`}><summary className="cursor-pointer text-sm font-semibold text-slate-200">Research settings & weights <span className="ml-2 text-xs font-normal text-slate-500">Changes apply when you load again</span></summary><div className="mt-4 grid gap-4 md:grid-cols-2"><div className="grid grid-cols-2 gap-3">{Object.entries(weights).map(([k,w])=><label key={k} className="text-xs text-slate-400">{titles[k]}<input type="number" min="0" max="100" className={`${field} mt-1 block w-full`} value={w} onChange={e=>setWeights({...weights,[k]:+e.target.value})}/></label>)}<p className={`col-span-2 text-xs ${sum===100?'text-emerald-400':'text-rose-400'}`}>Weights total {sum} / 100</p></div><div className="grid grid-cols-2 gap-3">{[['Threshold',threshold,setThreshold],['Target R',rr,setRr],['Stop ATR',stopAtr,setStopAtr],['Bars to resolve',horizon,setHorizon],['Round-trip cost (price)',cost,setCost]].map(([name,value,set])=><label key={name as string} className="text-xs text-slate-400">{name as string}<input type="number" min="0" step="0.1" className={`${field} mt-1 block w-full`} value={value as number} onChange={e=>(set as (n:number)=>void)(+e.target.value)}/></label>)}</div></div></details>
-  <div className="text-xs leading-5 text-slate-600">First implementation: illustrative heuristics, fixed UTC sessions and simplified multi-timeframe context. The custom indicator runtime is a subset. Live streaming, automated strategy learning and machine learning are not implemented. Replay is a research simulation on loaded historical candles.</div>
- </div>;
+
+export function ResearchDesk() {
+  const chartSection = useRef<HTMLElement>(null);
+  const [maximized, setMaximized] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState("");
+
+  useEffect(() => {
+    const changed = () => setMaximized(document.fullscreenElement === chartSection.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+
+  async function toggleFullscreen() {
+    try {
+      setFullscreenError("");
+      if (document.fullscreenElement === chartSection.current) await document.exitFullscreen();
+      else await chartSection.current?.requestFullscreen();
+    } catch {
+      setFullscreenError("Fullscreen is unavailable in this browser.");
+    }
+  }
+
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [clusterExpanded, setClusterExpanded] = useState(true);
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [replayCursor, setReplayCursor] = useState<number | null>(null);
+  const [replayPlan, setReplayPlan] = useState<Plan | null>(null);
+  const [replayFollow, setReplayFollow] = useState(true);
+  const replayCursorChanged = useCallback((i: number | null) => {
+    setReplayCursor(i);
+    if (i !== null) setSelected(i);
+  }, []);
+
+  const [quickParams, setQuickParams] = useState(quickDefaults);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickSelected, setQuickSelected] = useState<number | null>(null);
+  const [program, setProgram] = useState<IndicatorProgram | null>(null);
+  const [indicatorStatus, setIndicatorStatus] = useState("");
+  const [preset, setPreset] = useState("none");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (preset === "no-wick" && typeof program?.inputs.intLen === "number" && typeof program.inputs.extLen === "number") {
+      const inner = Math.max(1, Math.min(30, Math.floor(program.inputs.intLen))),
+        outer = Math.max(2, Math.min(100, Math.floor(program.inputs.extLen)));
+      setQuickParams((v) => (v.swingLength === inner && v.externalLength === outer ? v : { ...v, swingLength: inner, externalLength: outer }));
+    }
+  }, [preset, program]);
+
+  // Main state
+  const [data, setData] = useState<Data | null>(null);
+  const [source, setSource] = useState("sample");
+  const [minutes, setMinutes] = useState(5);
+  const [count, setCount] = useState(5000);
+  const [selected, setSelected] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [weights, setWeights] = useState(initial);
+  const [threshold, setThreshold] = useState(65);
+  const [rr, setRr] = useState(1.5);
+  const [stopAtr, setStopAtr] = useState(1);
+  const [horizon, setHorizon] = useState(20);
+  const [cost, setCost] = useState(0.3); // default $0.30/oz realistic spread for gold
+  const [targetMode, setTargetMode] = useState<"structural" | "fixed">("structural");
+  const [stopMode, setStopMode] = useState<"structural" | "atr">("structural");
+  const [minRr, setMinRr] = useState(1.5);
+  const [requirePattern, setRequirePattern] = useState(false);
+  const [showTradeOverlays, setShowTradeOverlays] = useState(true);
+
+  // Optimizer modal state
+  const [optOpen, setOptOpen] = useState(false);
+  const [optLoading, setOptLoading] = useState(false);
+  const [optCandidates, setOptCandidates] = useState<OptimizationCandidate[] | null>(null);
+
+  const latest = useRef<Data | null>(null);
+  const selectedRef = useRef(0);
+  const viewportRef = useRef<LogicalViewport | null>(null);
+  const restoreRef = useRef<LogicalViewport | null>(null);
+  const generation = useRef(0);
+  const olderBusy = useRef(false);
+  const historyBlocked = useRef(false);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [olderNotice, setOlderNotice] = useState("");
+
+  latest.current = data;
+  selectedRef.current = selected;
+
+  const load = useCallback(async () => {
+    setReplayOpen(false);
+    setReplayCursor(null);
+    setReplayPlan(null);
+    generation.current++;
+    historyBlocked.current = false;
+    restoreRef.current = null;
+    setOlderNotice("");
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          minutes,
+          count,
+          weights,
+          threshold,
+          rr,
+          stopAtr,
+          horizon,
+          cost,
+          targetMode,
+          stopMode,
+          minRr,
+          requirePattern,
+        }),
+      });
+      const value = await res.json();
+      if (!res.ok) throw Error(value.error || "Could not load data");
+      latest.current = value;
+      setData(value);
+      setSelected(value.candles.length - 1);
+      if (!value.analysisAvailable) {
+        setProgram(null);
+        setPreset("none");
+        setIndicatorStatus("");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [source, minutes, count, weights, threshold, rr, stopAtr, horizon, cost, targetMode, stopMode, minRr, requirePattern]);
+
+  const runOptimizer = useCallback(async () => {
+    setOptOpen(true);
+    setOptLoading(true);
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          minutes,
+          count: Math.max(1000, count),
+          weights,
+          action: "optimize",
+          cost,
+        }),
+      });
+      const value = await res.json();
+      if (!res.ok) throw Error(value.error || "Optimization failed.");
+      setOptCandidates(value.optimization || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Optimizer failed");
+    } finally {
+      setOptLoading(false);
+    }
+  }, [source, minutes, count, weights, cost]);
+
+  const applyOptimizationPreset = useCallback(
+    (presetCandidate: OptimizationCandidate) => {
+      setThreshold(presetCandidate.threshold);
+      setTargetMode(presetCandidate.target_mode as "structural" | "fixed");
+      setStopMode(presetCandidate.stop_mode as "structural" | "atr");
+      setMinRr(presetCandidate.min_rr);
+      setRr(presetCandidate.rr);
+      setStopAtr(presetCandidate.stop_atr);
+      setRequirePattern(presetCandidate.require_pattern);
+      setTimeout(() => {
+        void load();
+      }, 50);
+    },
+    [load]
+  );
+
+  const loadOlder = useCallback(
+    async (force = false) => {
+      const current = latest.current;
+      if (!current || current.source !== "oanda" || olderBusy.current || loading) return;
+      if (current.candles.length >= 50000) {
+        setOlderNotice("50,000-candle limit reached.");
+        return;
+      }
+      if (current.historyExhausted) {
+        setOlderNotice("No more history was returned by OANDA.");
+        return;
+      }
+      if (historyBlocked.current && !force) return;
+      historyBlocked.current = false;
+      olderBusy.current = true;
+      setOlderLoading(true);
+      setOlderNotice("Loading older candles and recalculating…");
+      const version = generation.current;
+      try {
+        const response = await fetch("/api/research", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "older", runId: current.runId }),
+        });
+        const value: Data & { error?: string } = await response.json();
+        if (!response.ok) throw Error(value.error || "Could not load older candles.");
+        if (version !== generation.current || latest.current?.runId !== current.runId) return;
+        if (!value.olderAdded) {
+          restoreRef.current = viewportRef.current;
+          latest.current = { ...current, historyExhausted: true };
+          setData(latest.current);
+          setOlderNotice("No older candles returned by OANDA.");
+          return;
+        }
+        const shift = value.candles.findIndex((x) => x.time === current.candles[0].time);
+        if (shift < 0) throw Error("Older history could not be aligned with the existing chart.");
+        const view = viewportRef.current;
+        if (view) restoreRef.current = { from: view.from + shift, to: view.to + shift };
+        const selectedTime = current.candles[selectedRef.current]?.time,
+          newIndex = value.candles.findIndex((x) => x.time === selectedTime);
+        latest.current = value;
+        setData(value);
+        setSelected(newIndex >= 0 ? newIndex : shift);
+        setOlderNotice(
+          value.historyExhausted
+            ? `Added ${value.olderAdded.toLocaleString()} older candles; no further data returned.`
+            : `Added ${value.olderAdded.toLocaleString()} older candles · analysis recalculated.`
+        );
+      } catch (e) {
+        if (version === generation.current) {
+          historyBlocked.current = true;
+          setOlderNotice((e instanceof Error ? e.message : "Could not load older candles.") + " Use Retry older history.");
+        }
+      } finally {
+        olderBusy.current = false;
+        setOlderLoading(false);
+      }
+    },
+    [loading]
+  );
+
+  const viewportChanged = useCallback(
+    (range: LogicalViewport) => {
+      viewportRef.current = range;
+      if (replayCursor === null && !replayOpen && range.from <= 150) void loadOlder();
+    },
+    [loadOlder, replayCursor, replayOpen]
+  );
+
+  const chartData = useMemo(
+    () =>
+      !data || replayCursor === null
+        ? data
+        : {
+            ...data,
+            candles: data.candles.slice(0, replayCursor + 1),
+            results: data.results.slice(0, replayCursor + 1),
+          },
+    [data, replayCursor]
+  );
+
+  const studyOptions = useMemo<StudyOptions>(() => {
+    const x = program?.inputs || {};
+    return {
+      ...defaultStudy,
+      atrLength: typeof x.atrLength === "number" ? x.atrLength : 14,
+      zoneLife: typeof x.zoneLife === "number" ? x.zoneLife : 100,
+      minGapATR: typeof x.minGapATR === "number" ? x.minGapATR : 0,
+      requireMid: typeof x.requireMid === "boolean" ? x.requireMid : true,
+      showBull: typeof x.showBull === "boolean" ? x.showBull : true,
+      showBear: typeof x.showBear === "boolean" ? x.showBear : true,
+    };
+  }, [program]);
+
+  const quickResult = useMemo(
+    () =>
+      data && preset === "fvg-reaction" && (clusterExpanded || quickOpen || quickSelected !== null)
+        ? runFvgQuick(data.candles, selected, data.minutes, quickParams, studyOptions)
+        : null,
+    [data, selected, preset, quickParams, studyOptions, quickOpen, quickSelected, clusterExpanded]
+  );
+
+  const quickZones = useMemo(
+    () => quickResult?.zones.filter((z) => (z.direction === 1 ? studyOptions.showBull : studyOptions.showBear)) || [],
+    [quickResult, studyOptions]
+  );
+
+  const zoneClick = useCallback(
+    (i: number, price: number) => {
+      if (preset !== "fvg-reaction" || !data) return false;
+      const candidates = quickResult
+        ? quickZones
+        : runFvgQuick(data.candles, selected, data.minutes, quickParams, studyOptions).zones.filter((z) =>
+            z.direction === 1 ? studyOptions.showBull : studyOptions.showBear
+          );
+      const maxDraw = typeof program?.inputs.maxDraw === "number" ? Math.max(10, Math.min(500, Math.floor(program.inputs.maxDraw))) : 150;
+      const z = candidates
+        .slice(-maxDraw)
+        .reverse()
+        .find((z) => i >= z.created - 2 && i <= z.end && price >= z.bottom && price <= z.top);
+      if (!z) return false;
+      setQuickSelected(z.id);
+      return true;
+    },
+    [preset, quickZones, quickResult, data, selected, quickParams, studyOptions, program]
+  );
+
+  useEffect(() => {
+    setQuickSelected(null);
+    setQuickOpen(false);
+  }, [data?.runId]);
+
+  // Aggregate all simulated backtest trades
+  const allTrades = useMemo<TradeSetup[]>(() => {
+    if (!data?.backtest) return [];
+    const list: TradeSetup[] = [];
+    for (const group of Object.values(data.backtest)) {
+      if (group.tradeList) list.push(...group.tradeList);
+    }
+    return list.sort((a, b) => a.entry_idx - b.entry_idx);
+  }, [data]);
+
+  // Active or closest trade for the currently selected candle
+  const activeTrade = useMemo<TradeSetup | null>(() => {
+    if (!allTrades.length) return null;
+    const direct = allTrades.find((t) => t.entry_idx === selected);
+    if (direct) return direct;
+    const spanning = allTrades.find((t) => selected >= t.entry_idx && selected <= t.exit_idx);
+    if (spanning) return spanning;
+    const prior = [...allTrades].reverse().find((t) => t.entry_idx <= selected);
+    return prior || allTrades[allTrades.length - 1];
+  }, [allTrades, selected]);
+
+  const r = data?.results[selected];
+  const c = data?.candles[selected];
+  const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+
+  function exportCsv() {
+    if (!data) return;
+    const text = [
+      "time,open,high,low,close,bull,bear,net,classification,pattern,ready",
+      ...data.candles.map((x, i) => {
+        const z = data.results[i];
+        return [
+          new Date(x.time * 1000).toISOString(),
+          x.open,
+          x.high,
+          x.low,
+          x.close,
+          z.bull,
+          z.bear,
+          z.net,
+          z.classification,
+          z.pattern || "Standard",
+          z.ready,
+        ].join(",");
+      }),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "fvg-research-scores.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="w-full space-y-5 px-1 py-3 md:px-2">
+      <ResearchInfo open={infoOpen && !maximized} onClose={() => setInfoOpen(false)} inFullscreen={false} />
+      <OptimizationModal
+        open={optOpen}
+        loading={optLoading}
+        candidates={optCandidates}
+        onClose={() => setOptOpen(false)}
+        onApply={applyOptimizationPreset}
+      />
+
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.2em] text-emerald-400">
+            <Beaker size={14} /> Local research workspace
+          </div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl">FVG Confluence Lab</h1>
+            <button
+              type="button"
+              aria-label="Research metrics information"
+              onClick={() => setInfoOpen(true)}
+              className="rounded-full border border-slate-700 p-1.5 text-slate-300 hover:text-white"
+            >
+              <Info size={17} />
+            </button>
+          </div>
+          <p className="mt-1 text-sm text-slate-400">
+            Explore institutional price action, structural liquidity targets & causal confluence.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300">
+          <ShieldAlert size={14} /> Research only · no live orders
+        </div>
+      </header>
+
+      {/* Main Top Controls */}
+      <section className={`${panel} flex flex-wrap items-end gap-3 p-4`}>
+        <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <span>Data source</span>
+          <select className={`${field} block`} value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="sample">Synthetic demo (not gold)</option>
+            <option value="oanda">OANDA practice · XAU/USD</option>
+          </select>
+        </label>
+        <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <span>Timeframe</span>
+          <select className={`${field} block`} value={minutes} onChange={(e) => setMinutes(+e.target.value)}>
+            <option value={1}>1 minute</option>
+            <option value={3}>3 minutes</option>
+            <option value={5}>5 minutes</option>
+            <option value={15}>15 minutes</option>
+            <option value={30}>30 minutes</option>
+            <option value={45}>45 minutes · derived</option>
+            <option value={60}>1 hour</option>
+            <option value={1440}>Daily · chart only</option>
+            <option value={10080}>Weekly · chart only</option>
+          </select>
+        </label>
+        <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <span>Initial candles · max 50,000</span>
+          <input
+            className={`${field} block w-24`}
+            type="number"
+            min="100"
+            max="50000"
+            value={count}
+            onChange={(e) => setCount(+e.target.value)}
+            onBlur={() => setCount(Math.min(50000, Math.max(100, count || 100)))}
+          />
+        </label>
+        <button
+          onClick={load}
+          disabled={loading || sum !== 100}
+          className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+        >
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          {loading ? "Loading and analysing…" : "Load & analyse"}
+        </button>
+
+        {/* ONE-BUTTON OPTIMIZER BUTTON */}
+        <button
+          onClick={runOptimizer}
+          disabled={loading || !data}
+          className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/25 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-40"
+        >
+          <Sparkles size={14} /> One-Button Optimizer
+        </button>
+
+        <button
+          onClick={exportCsv}
+          disabled={!data}
+          className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2.5 text-xs text-slate-300 disabled:opacity-40"
+        >
+          <Download size={14} /> Export scores
+        </button>
+      </section>
+
+      {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>}
+
+      {!data ? (
+        <div className={`${panel} flex min-h-[400px] flex-col items-center justify-center p-10 text-center`}>
+          <ChartCandlestick size={42} className="mb-4 text-emerald-500" />
+          <h2 className="text-lg font-semibold">Start a research session</h2>
+          <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
+            Load synthetic candles or fetch live OANDA midpoint candles to begin analyzing structural FVG reactions, candlestick patterns, and out-of-sample backtests.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div
+            className={`rounded-xl border px-4 py-3 text-xs ${
+              data.source === "sample"
+                ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                : "border-sky-500/25 bg-sky-500/10 text-sky-200"
+            }`}
+          >
+            {data.warning} Loaded {data.candles.length.toLocaleString()} bars,{" "}
+            {new Date(data.candles[0].time * 1000).toISOString().slice(0, 16).replace("T", " ")} to{" "}
+            {new Date(data.candles[data.candles.length - 1].time * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC.
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <section
+              ref={chartSection}
+              data-research-chart
+              className={`${panel} min-w-0 overflow-hidden fullscreen:rounded-none fullscreen:bg-[#101722]`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                <div>
+                  <span className="font-semibold text-white">{data.source === "sample" ? "SYNTHETIC" : "XAU / USD"}</span>
+                  <span className="ml-3 text-xs text-slate-500">
+                    {tfLabel(data.minutes)} · {replayCursor === null ? data.candles.length : replayCursor + 1} completed candles
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-400">
+                  Indicator{" "}
+                  <select
+                    aria-label="Select indicator"
+                    value={preset}
+                    disabled={!data.analysisAvailable}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPreset(v);
+                      if (v === "none") {
+                        setProgram(null);
+                        setIndicatorStatus("Indicator removed");
+                      }
+                    }}
+                    className="rounded-lg border border-slate-700 bg-[#0b111a] px-2 py-1.5 text-xs text-slate-200"
+                  >
+                    <option value="none">None</option>
+                    <option value="fvg-reaction">FVG Reaction Study</option>
+                    <option value="no-wick">No-Wick Structure</option>
+                  </select>
+                </label>
+                {preset !== "none" && <span className="text-[10px] text-slate-400">{indicatorStatus}</span>}
+
+                <button
+                  type="button"
+                  aria-label="Toggle trade drawing overlays"
+                  onClick={() => setShowTradeOverlays((v) => !v)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs ${
+                    showTradeOverlays ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : "border-slate-700 text-slate-400"
+                  }`}
+                >
+                  <Crosshair size={13} /> {showTradeOverlays ? "TP/SL Overlays On" : "TP/SL Overlays Off"}
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="Open backtest replay"
+                  disabled={!data.analysisAvailable}
+                  onClick={() => {
+                    if (replayOpen) {
+                      setReplayCursor(null);
+                      setReplayPlan(null);
+                    }
+                    setReplayOpen((v) => !v);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 disabled:opacity-40"
+                >
+                  <History size={14} /> Backtest
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  aria-label={maximized ? "Exit fullscreen" : "Maximize chart"}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:text-white"
+                >
+                  {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}{" "}
+                  {maximized ? "Exit fullscreen" : "Maximize chart"}
+                </button>
+                <span className="font-mono text-xs text-slate-400">
+                  {c ? new Date(c.time * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC" : ""}
+                </span>
+              </div>
+
+              <div className="relative">
+                <PriceChart
+                  data={chartData!}
+                  selected={selected}
+                  onSelect={replayCursor === null ? setSelected : () => {}}
+                  program={program}
+                  onStatus={setIndicatorStatus}
+                  onViewport={viewportChanged}
+                  restoreRef={restoreRef}
+                  plan={replayPlan}
+                  replaying={replayCursor !== null}
+                  follow={replayFollow}
+                  onDetach={() => setReplayFollow(false)}
+                  onZoneClick={zoneClick}
+                  activeTrade={activeTrade}
+                  showTradeOverlays={showTradeOverlays}
+                />
+                {replayOpen && data.analysisAvailable && (
+                  <ReplayPanel
+                    bars={data.candles}
+                    results={data.results}
+                    minutes={data.minutes}
+                    selected={selected}
+                    onCursor={replayCursorChanged}
+                    onPlan={setReplayPlan}
+                    follow={replayFollow}
+                    onFollowChange={setReplayFollow}
+                    compact={preset === "fvg-reaction" && clusterExpanded}
+                    onClose={() => {
+                      setReplayPlan(null);
+                      setReplayOpen(false);
+                    }}
+                  />
+                )}
+                {["fvg-reaction", "no-wick"].includes(preset) && program && (
+                  <div className="absolute left-3 top-3 z-30">
+                    <div className="flex items-center gap-2 rounded-md bg-slate-950/90 px-3 py-2 text-xs text-slate-200">
+                      <span>{preset === "no-wick" ? "No-Wick Structure" : "FVG Reaction Study"}</span>
+                      {preset === "fvg-reaction" && (
+                        <button type="button" onClick={() => setQuickOpen(true)} className="rounded px-1 hover:bg-slate-700">
+                          Parameters
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={preset === "no-wick" ? "No-Wick Structure settings" : "FVG Reaction Study settings"}
+                        aria-expanded={settingsOpen}
+                        onClick={() => setSettingsOpen((v) => !v)}
+                        className="rounded px-1 hover:bg-slate-700"
+                      >
+                        ⚙ Settings
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={preset === "no-wick" ? "Remove No-Wick Structure" : "Remove FVG Reaction Study"}
+                        onClick={() => {
+                          setProgram(null);
+                          setPreset("none");
+                          setSettingsOpen(false);
+                        }}
+                        className="rounded px-1 hover:bg-slate-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {settingsOpen && (
+                      <div
+                        role="dialog"
+                        aria-label={preset === "no-wick" ? "No-Wick Structure settings" : "FVG Reaction Study settings"}
+                        className="mt-1 max-h-[min(70vh,600px)] w-[min(92vw,360px)] overflow-auto rounded-lg border border-slate-700 bg-[#101722] p-4 shadow-xl"
+                      >
+                        <div className="mb-3 flex justify-between text-sm font-semibold text-white">
+                          <span>Indicator settings</span>
+                          <button onClick={() => setSettingsOpen(false)} aria-label="Close indicator settings">
+                            ✕
+                          </button>
+                        </div>
+                        <div className="grid gap-3">
+                          {((preset === "no-wick" ? noWickInputs : fvgReactionInputs) as IndicatorInput[]).map((d) => (
+                            <label key={d.id} className="flex items-center justify-between gap-3 text-xs text-slate-300">
+                              <span>{d.name}</span>
+                              {d.type === "bool" ? (
+                                <input
+                                  type="checkbox"
+                                  checked={!!program.inputs[d.id]}
+                                  onChange={(e) =>
+                                    setProgram({
+                                      ...program,
+                                      inputs: { ...program.inputs, [d.id]: e.target.checked },
+                                      revision: Date.now(),
+                                    })
+                                  }
+                                />
+                              ) : d.type === "select" ? (
+                                <select
+                                  className={field}
+                                  value={String(program.inputs[d.id])}
+                                  onChange={(e) =>
+                                    setProgram({
+                                      ...program,
+                                      inputs: { ...program.inputs, [d.id]: e.target.value },
+                                      revision: Date.now(),
+                                    })
+                                  }
+                                >
+                                  {d.options?.map((o) => (
+                                    <option key={o} value={o}>
+                                      {o}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className={field + " w-32"}
+                                  type={d.type === "color" ? "color" : d.type === "int" || d.type === "float" ? "number" : "text"}
+                                  min={d.min}
+                                  max={d.max}
+                                  step={d.step || "any"}
+                                  value={String(program.inputs[d.id])}
+                                  onChange={(e) =>
+                                    setProgram({
+                                      ...program,
+                                      inputs: {
+                                        ...program.inputs,
+                                        [d.id]: d.type === "int" || d.type === "float" ? Number(e.target.value) : e.target.value,
+                                      },
+                                      revision: Date.now(),
+                                    })
+                                  }
+                                />
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {preset === "fvg-reaction" && (
+                  <FvgClusters
+                    zones={quickZones}
+                    params={quickParams}
+                    asOf={data.candles[selected].time}
+                    selectedId={quickSelected}
+                    expanded={clusterExpanded}
+                    onExpanded={setClusterExpanded}
+                    source={data.source}
+                    minutes={data.minutes}
+                    replayOpen={replayOpen}
+                    legacyTable={!!program?.inputs.showTable}
+                    bars={data.candles}
+                    study={studyOptions}
+                  />
+                )}
+                <ResearchInfo open={infoOpen && maximized} onClose={() => setInfoOpen(false)} inFullscreen />
+                {preset === "fvg-reaction" && quickResult && (
+                  <FvgQuickPanel
+                    params={quickParams}
+                    zones={quickZones}
+                    bars={data.candles}
+                    first={quickResult.first}
+                    last={quickResult.last}
+                    selectedId={quickSelected}
+                    open={quickOpen}
+                    onOpen={setQuickOpen}
+                    onApply={setQuickParams}
+                    onClear={() => setQuickSelected(null)}
+                  />
+                )}
+              </div>
+
+              <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-400">
+                Selected:{" "}
+                {c && (
+                  <>
+                    O {c.open.toFixed(2)} · H {c.high.toFixed(2)} · L {c.low.toFixed(2)} · C {c.close.toFixed(2)}
+                  </>
+                )}
+                {fullscreenError && <span className="ml-3 text-rose-300">{fullscreenError}</span>}
+                {data.source === "oanda" && (
+                  <span className="ml-3 text-sky-300">
+                    {olderLoading ? "Loading older history…" : olderNotice || "Pan left to load older candles automatically."}
+                  </span>
+                )}
+                {data.source === "oanda" && !olderLoading && olderNotice.includes("Retry older history") && (
+                  <button className="ml-2 underline text-amber-300" onClick={() => void loadOlder(true)}>
+                    Retry older history
+                  </button>
+                )}
+              </div>
+            </section>
+
+            {/* Selected Candle & Trade Trajectory Section */}
+            <div className="space-y-4">
+              <section className={`${panel} p-4`}>
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <Activity size={14} /> Selected candle analysis
+                </div>
+                {r && (
+                  <>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-xl bg-emerald-500/10 p-3">
+                        <span className="text-[10px] uppercase text-emerald-400 font-semibold">Bullish Confluence</span>
+                        <div className="mt-1 text-2xl font-bold text-emerald-300">
+                          {r.bull ?? "—"}
+                          <span className="text-xs text-slate-500"> / 100</span>
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-rose-500/10 p-3">
+                        <span className="text-[10px] uppercase text-rose-400 font-semibold">Bearish Confluence</span>
+                        <div className="mt-1 text-2xl font-bold text-rose-300">
+                          {r.bear ?? "—"}
+                          <span className="text-xs text-slate-500"> / 100</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-xl border border-slate-700/60 p-3">
+                      <div className="flex justify-between text-sm">
+                        <strong>{r.classification}</strong>
+                        <span className="font-mono text-slate-400">Net {r.net === null ? "—" : (r.net > 0 ? "+" : "") + r.net}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {!data.analysisAvailable
+                          ? "Chart only: calendar-aware scoring is not yet available."
+                          : r.conflict
+                          ? "HTF and intermediate context conflict."
+                          : "Directional estimate; not an entry signal."}
+                      </p>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                      {[
+                        [data.analysisAvailable ? "HTF · " + tfLabel(data.minutes * 12) : "HTF", r.htf],
+                        [data.analysisAvailable ? "MTF · " + tfLabel(data.minutes * 3) : "MTF", r.mtf],
+                        ["LTF · " + tfLabel(data.minutes), r.ltf],
+                      ].map(([label, n]) => (
+                        <div key={label} className="rounded-lg bg-slate-900 p-2">
+                          <div className="text-slate-500">{label}</div>
+                          <div className="mt-1 text-slate-200">{data.analysisAvailable ? bias(n as number) : "—"}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-xs text-slate-400 border-t border-slate-800/80 pt-3">
+                      <div className="flex items-center justify-between">
+                        <span>Pattern:</span>
+                        <span className="flex items-center gap-1 font-semibold text-amber-300">
+                          <Zap size={11} /> {r.pattern || "Standard Candle"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Structure:</span>
+                        <span className="text-slate-200 font-medium">{r.break}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Liquidity:</span>
+                        <span className="text-slate-200 font-medium">{r.sweep}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Active FVGs:</span>
+                        <span className="text-slate-200 font-medium">{data.analysisAvailable ? r.zones.length : "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>ATR (14):</span>
+                        <span className="text-slate-200 font-mono">{r.atr?.toFixed(2) ?? "warming up"}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </section>
+
+              {/* REAL-TIME / HYPOTHETICAL TRADE RANGE & PROGRESS GAUGE */}
+              <TradeProgressGauge trade={activeTrade} currentClose={c ? c.close : 0} patternName={r?.pattern} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <section className={`${panel} p-5`}>
+              <div className="flex justify-between">
+                <div>
+                  <h2 className="font-semibold text-white">Confluence breakdown</h2>
+                  <p className="mt-1 text-xs text-slate-500">Points per direction · selected candle</p>
+                </div>
+                <span className="text-xs text-slate-500">Bull / Bear</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {!data.analysisAvailable && <p className="text-xs text-amber-300">Breakdown unavailable on daily and weekly bars.</p>}
+                {r &&
+                  Object.entries(r.metrics).map(([k, m]) => (
+                    <div key={k} className="border-b border-slate-800/60 pb-2">
+                      <div className="flex justify-between gap-2 text-xs">
+                        <span className="font-medium text-slate-200">{titles[k]}</span>
+                        <span className="font-mono">
+                          <span className="text-emerald-400">{m.bull}</span>
+                          <span className="text-slate-600"> / </span>
+                          <span className="text-rose-400">{m.bear}</span>
+                          <span className="text-slate-500"> of {m.max}</span>
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">{m.explanation}</p>
+                    </div>
+                  ))}
+              </div>
+            </section>
+
+            {/* Enhanced Backtest Results Table with Profit Factor */}
+            <section className={`${panel} p-5`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-white">Chronological backtest</h2>
+                  <p className="mt-1 text-xs text-slate-500">60% Train · 20% Validation · 20% Held-Out Test</p>
+                </div>
+                <Beaker size={18} className="text-slate-500" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                {!data.analysisAvailable && <p className="mb-3 text-xs text-amber-300">Backtesting unavailable on daily and weekly bars.</p>}
+                <table className="w-full text-left text-xs">
+                  <thead className="text-slate-500">
+                    <tr>
+                      <th className="pb-3">Period</th>
+                      <th>Trades</th>
+                      <th>Win rate</th>
+                      <th>Expectancy</th>
+                      <th>Profit Factor</th>
+                      <th>Net R</th>
+                      <th>Max DD</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(replayCursor === null ? Object.entries(data.backtest) : []).map(([k, v]) => (
+                      <tr key={k} className="border-t border-slate-800">
+                        <td className="py-3 text-slate-300 font-semibold">{k}</td>
+                        <td>{v.trades}</td>
+                        <td>{v.winRate === null ? "—" : v.winRate + "%"}</td>
+                        <td className={v.expectancyR !== null && v.expectancyR >= 0 ? "text-emerald-400 font-mono" : "text-rose-400 font-mono"}>
+                          {v.expectancyR !== null ? `${v.expectancyR >= 0 ? "+" : ""}${v.expectancyR}R` : "—"}
+                        </td>
+                        <td className="text-slate-200 font-mono">{v.profitFactor !== undefined && v.profitFactor !== null ? v.profitFactor : "—"}</td>
+                        <td className={v.netR >= 0 ? "text-emerald-400 font-mono" : "text-rose-400 font-mono"}>
+                          {v.netR.toFixed(2)}R
+                        </td>
+                        <td className="text-slate-400 font-mono">{v.maxDrawdownR.toFixed(2)}R</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-4 text-xs leading-5 text-slate-500">
+                Structural invalidation stops and BSL/SSL targets simulated with dynamic R:R filtering. Results reflect realistic broker spreads and non-overlapping executions.
+              </p>
+            </section>
+          </div>
+        </>
+      )}
+
+      {/* Advanced Research Settings & Weights Drawer */}
+      <details className={`${panel} p-4`}>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">
+          Research settings, targets & weights <span className="ml-2 text-xs font-normal text-slate-500">Click to expand</span>
+        </summary>
+        <div className="mt-4 grid gap-6 md:grid-cols-2">
+          {/* Weights */}
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Confluence Weights (Total = 100)</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(weights).map(([k, w]) => (
+                <label key={k} className="text-xs text-slate-400">
+                  {titles[k]}
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    className={`${field} mt-1 block w-full`}
+                    value={w}
+                    onChange={(e) => setWeights({ ...weights, [k]: +e.target.value })}
+                  />
+                </label>
+              ))}
+              <p className={`col-span-2 text-xs font-medium ${sum === 100 ? "text-emerald-400" : "text-rose-400"}`}>
+                Weights total {sum} / 100
+              </p>
+            </div>
+          </div>
+
+          {/* Strategy Execution & Target Parameters */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Structural Target & Execution Rules</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-slate-400">
+                Target Mode
+                <select
+                  className={`${field} mt-1 block w-full`}
+                  value={targetMode}
+                  onChange={(e) => setTargetMode(e.target.value as "structural" | "fixed")}
+                >
+                  <option value="structural">Structural Liquidity (BSL / SSL)</option>
+                  <option value="fixed">Fixed R:R Multiple</option>
+                </select>
+              </label>
+
+              <label className="text-xs text-slate-400">
+                Stop Loss Mode
+                <select
+                  className={`${field} mt-1 block w-full`}
+                  value={stopMode}
+                  onChange={(e) => setStopMode(e.target.value as "structural" | "atr")}
+                >
+                  <option value="structural">Structural FVG Invalidation</option>
+                  <option value="atr">ATR Multiple Buffer</option>
+                </select>
+              </label>
+
+              <label className="text-xs text-slate-400">
+                Min Structural R:R Filter
+                <input
+                  type="number"
+                  min="0.5"
+                  max="10"
+                  step="0.1"
+                  className={`${field} mt-1 block w-full`}
+                  value={minRr}
+                  onChange={(e) => setMinRr(+e.target.value)}
+                />
+              </label>
+
+              <label className="text-xs text-slate-400">
+                Target R (if Fixed)
+                <input
+                  type="number"
+                  min="0.5"
+                  max="10"
+                  step="0.1"
+                  className={`${field} mt-1 block w-full`}
+                  value={rr}
+                  onChange={(e) => setRr(+e.target.value)}
+                />
+              </label>
+
+              <label className="text-xs text-slate-400">
+                Confluence Threshold
+                <input
+                  type="number"
+                  min="50"
+                  max="100"
+                  className={`${field} mt-1 block w-full`}
+                  value={threshold}
+                  onChange={(e) => setThreshold(+e.target.value)}
+                />
+              </label>
+
+              <label className="text-xs text-slate-400">
+                Round-trip Cost / Spread ($)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.05"
+                  className={`${field} mt-1 block w-full`}
+                  value={cost}
+                  onChange={(e) => setCost(+e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-1 border-t border-slate-800">
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requirePattern}
+                  onChange={(e) => setRequirePattern(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span>Require Confirmed Candlestick Pattern at FVG (Hammer, Engulfing, etc.)</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showTradeOverlays}
+                  onChange={(e) => setShowTradeOverlays(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span>Draw Hypothetical Entry, Target (TP) & Stop Loss (SL) lines on Chart</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <div className="text-xs leading-5 text-slate-600">
+        MoneyPrinter FVG Research Prototype: Advanced algorithmic detection of imbalances, structural swing liquidity (BSL/SSL), and candlestick reaction signatures.
+      </div>
+    </div>
+  );
 }

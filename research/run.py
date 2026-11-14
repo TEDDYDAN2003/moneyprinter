@@ -2,7 +2,7 @@
 """Local-only JSON bridge. Never returns credentials."""
 import os,sys,json,random,urllib.request,urllib.error,urllib.parse,math,sqlite3,hashlib,uuid,re
 from datetime import datetime,timezone
-from engine import analyze,backtest
+from engine import analyze,backtest,optimize
 
 def sample(minutes,count):
     random.seed(42); start=1704067200; p=2050.; rows=[]
@@ -116,7 +116,13 @@ def main():
     if not bars:raise ValueError('No complete candles available for this timeframe.')
     available=minutes not in (1440,10080)
     results=analyze(bars,minutes,req.get('weights')) if available else [unavailable_result(c) for c in bars]
-    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=max(0,min(100,float(req.get('cost',0)))),threshold=max(50,min(100,float(req.get('threshold',65))))) if available else {}
+    target_mode=req.get('targetMode','structural')
+    stop_mode=req.get('stopMode','structural')
+    min_rr=max(0.5,min(10.0,float(req.get('minRr',1.5))))
+    require_pattern=bool(req.get('requirePattern',False))
+    cost_val=max(0,min(100,float(req.get('cost',0))))
+    bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=cost_val,threshold=max(50,min(100,float(req.get('threshold',65)))),target_mode=target_mode,stop_mode=stop_mode,min_rr=min_rr,require_pattern=require_pattern) if available else {}
+    opt=optimize(bars,results,minutes=minutes,cost=cost_val) if (available and (req.get('action')=='optimize' or req.get('optimize') is True)) else None
     note=(f'{minutes}m is derived from complete {base_minutes}m candles aligned to UTC; incomplete groups are excluded. ' if minutes in (3,45) and source=='oanda' else '')+('Daily/weekly: chart only; scores, backtesting and indicators are disabled until calendar-aware support is implemented. OANDA bars use New York 17:00 and Friday weekly alignment. ' if not available else '')
     # Persist the exact candle snapshot, parameters and every score locally.
     # No API token or full process environment enters the database.
@@ -126,7 +132,7 @@ def main():
         db.execute('CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, created_utc TEXT, source TEXT, symbol TEXT, minutes INTEGER, data_sha256 TEXT, settings TEXT, candles TEXT, results TEXT, backtest TEXT)')
         db.execute('INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)',(run_id,datetime.now(timezone.utc).isoformat(),source,'XAU_USD',minutes,digest,json.dumps(req),snapshot,json.dumps(results,separators=(',',':')),json.dumps(bt)))
     db.close()
-    print(json.dumps({'runId':run_id,'dataHash':digest,'olderAdded':older_count,'historyExhausted':history_exhausted,'analysisAvailable':available,'source':source,'symbol':'XAU_USD','minutes':minutes,'candles':bars,'results':results,'backtest':bt,'warning':note+('Synthetic example data, not market prices.' if source=='sample' else ('OANDA midpoint candles; provider quotes may differ from Exness. Verify timestamps and completeness.'+(f' Only {len(bars)} of {count} requested candles were available.' if mode=='initial' and len(bars)<count else '')))},allow_nan=False))
+    print(json.dumps({'runId':run_id,'dataHash':digest,'olderAdded':older_count,'historyExhausted':history_exhausted,'analysisAvailable':available,'source':source,'symbol':'XAU_USD','minutes':minutes,'candles':bars,'results':results,'backtest':bt,'optimization':opt,'warning':note+('Synthetic example data, not market prices.' if source=='sample' else ('OANDA midpoint candles; provider quotes may differ from Exness. Verify timestamps and completeness.'+(f' Only {len(bars)} of {count} requested candles were available.' if mode=='initial' and len(bars)<count else '')))},allow_nan=False))
 if __name__=='__main__':
     try:main()
     except Exception as e:print(json.dumps({'error':str(e)}));sys.exit(1)
