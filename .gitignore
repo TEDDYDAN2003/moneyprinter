@@ -46,3 +46,7 @@ next-env.d.ts
 /.git-credentials
 /.netrc
 /.wget-hsts
+
+# Local research snapshots and Python cache
+/research/data/
+/research/__pycache__/

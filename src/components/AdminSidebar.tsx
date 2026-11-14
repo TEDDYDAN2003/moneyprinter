@@ -129,6 +129,7 @@ export function AdminSidebar({ user, supabaseConfigured, courseFocus = false }: 
           </div>
 
           <nav className="space-y-1" aria-label="Main Trading Navigation">
+            <Link href={withSessionQuery("/admin/research")} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all ${pathname.startsWith("/admin/research") ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" : "border-transparent text-slate-300 hover:bg-slate-800/60 hover:text-white"}`}><ChartCandlestick className="h-4 w-4"/><span>FVG Research Lab</span><span className="ml-auto rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">LOCAL</span></Link>
             {/* Overview */}
             <Link
               href={withSessionQuery("/admin")}
