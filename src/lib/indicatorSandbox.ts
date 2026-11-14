@@ -37,7 +37,7 @@ export const indicatorSandboxHtml = String.raw`<!doctype html><html><head><meta 
     // Factory body only, as in Free Chart; executes inside the disposable worker.
     const factory=new Function('bv',q.script);const obj=factory(bv);
     if(!obj||typeof obj.calc!=='function'||typeof obj.draw!=='function')throw Error('Script must return an object with calc(data, indicator) and draw(args).');
-    obj.calc(data,indicator);
+    indicator.result=obj.calc(data,indicator);
     obj.draw({ctx,indicator,bounding:bounds,xAxis:{convertToPixel:X},yAxis:{convertToPixel:Y}});
     const bitmap=canvas.transferToImageBitmap();self.postMessage({ok:true,bitmap},[bitmap]);
    }catch(err){self.postMessage({ok:false,error:String(err&&err.message||err)});}

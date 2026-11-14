@@ -1,6 +1,7 @@
 "use client";
 import React,{useEffect,useRef,useState} from 'react';
 import {fvgReactionInputs,fvgReactionScript} from '@/lib/indicators/fvg-reaction';
+import {noWickInputs,noWickScript} from '@/lib/indicators/no-wick';
 export type IndicatorInput={id:string;name:string;type:string;defval:string|number|boolean;options?:string[];min?:number;max?:number;step?:number};
 export type IndicatorProgram={script:string;inputs:Record<string,string|number|boolean>;revision:number};
 const defaultJson=JSON.stringify([{id:'colour',name:'Label colour',type:'color',defval:'#34d399'}],null,2);
@@ -10,9 +11,10 @@ export function IndicatorEditor({onApply,status,hasData,preset}:{onApply:(p:Indi
  const [json,setJson]=useState(defaultJson),[script,setScript]=useState(defaultScript),[definitions,setDefinitions]=useState<IndicatorInput[]>([]),[values,setValues]=useState<Record<string,string|number|boolean>>({}),[error,setError]=useState(''),[compiledScript,setCompiledScript]=useState('');
  const applyRef=useRef(onApply);applyRef.current=onApply;
  useEffect(()=>{
-  if(preset!=='fvg-reaction'||!hasData)return;
-  const defs=fvgReactionInputs as IndicatorInput[],vals:Record<string,string|number|boolean>={};
-  defs.forEach(d=>{vals[d.id]=d.defval});setJson(JSON.stringify(fvgReactionInputs,null,2));setScript(fvgReactionScript);setCompiledScript(fvgReactionScript);setDefinitions(defs);setValues(vals);setError('');applyRef.current({script:fvgReactionScript,inputs:vals,revision:Date.now()});
+  if(!['fvg-reaction','no-wick'].includes(preset)||!hasData)return;
+  const presetInputs=preset==='no-wick'?noWickInputs:fvgReactionInputs,presetScript=preset==='no-wick'?noWickScript:fvgReactionScript;
+  const defs=presetInputs as IndicatorInput[],vals:Record<string,string|number|boolean>={};
+  defs.forEach(d=>{vals[d.id]=d.defval});setJson(JSON.stringify(presetInputs,null,2));setScript(presetScript);setCompiledScript(presetScript);setDefinitions(defs);setValues(vals);setError('');applyRef.current({script:presetScript,inputs:vals,revision:Date.now()});
  },[preset,hasData]);
  function parse(){
   if(json.length>100000||script.length>250000)throw Error('The JSON or script is too large.');
