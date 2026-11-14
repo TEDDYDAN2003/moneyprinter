@@ -11,7 +11,7 @@ export const indicatorSandboxHtml = String.raw`<!doctype html><html><head><meta 
    const q=e.data;
    try{
     const canvas=new OffscreenCanvas(q.width,q.height),ctx=canvas.getContext('2d');
-    const data=q.bars.map(x=>({timestamp:x.time*1000,open:x.open,high:x.high,low:x.low,close:x.close,volume:0}));
+    const data=q.bars.map(x=>({timestamp:x.time*1000,time:x.time,open:x.open,high:x.high,low:x.low,close:x.close,volume:0}));
     const X=i=>q.x0+q.step*i,Y=p=>q.y0+q.yStep*(p-q.yBase);
     const bounds={left:0,top:0,width:q.paneWidth,height:q.paneHeight,right:q.paneWidth,bottom:q.paneHeight};
     const vis=q.visible;
@@ -45,11 +45,22 @@ export const indicatorSandboxHtml = String.raw`<!doctype html><html><head><meta 
  }
  const url=URL.createObjectURL(new Blob(['('+workerMain.toString()+')()'],{type:'text/javascript'}));
  addEventListener('message',function(e){if(e.source!==parent||!e.data||e.data.channel!=='mp-indicator-v1')return;let q=e.data;if(q.type==='clear'){job++;if(worker)worker.terminate();clearTimeout(timer);canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);return;}if(q.type!=='render')return;
-   job++;const own=job;if(worker)worker.terminate();clearTimeout(timer);canvas.width=q.payload.width;canvas.height=q.payload.height;
-   try{worker=new Worker(url);}catch(err){send('error','Worker could not start: '+err.message,q.id);return;}
-   timer=setTimeout(()=>{if(own!==job)return;worker.terminate();clear();send('error','Indicator exceeded the 3 second execution limit.',q.id)},3000);
-   worker.onmessage=function(event){if(own!==job)return;clearTimeout(timer);const r=event.data;if(r.ok){parent.postMessage({channel:'mp-indicator-v1',type:'frame',id:q.id,bitmap:r.bitmap,width:q.payload.width,height:q.payload.height},'*',[r.bitmap]);}else{clear();send('error',r.error,q.id);}worker.terminate();};
-   worker.onerror=function(){if(own!==job)return;clearTimeout(timer);clear();send('error','Indicator worker failed.',q.id);worker.terminate();};worker.postMessage(q.payload);
+   job++;const own=job;clearTimeout(timer);canvas.width=q.payload.width;canvas.height=q.payload.height;
+   if(!worker){
+     try{
+       worker=new Worker(url);
+       worker.onmessage=function(event){
+         if(own!==job)return;
+         clearTimeout(timer);
+         const r=event.data;
+         if(r.ok){parent.postMessage({channel:'mp-indicator-v1',type:'frame',id:q.id,bitmap:r.bitmap,width:q.payload.width,height:q.payload.height},'*',[r.bitmap]);}
+         else{clear();send('error',r.error,q.id);}
+       };
+       worker.onerror=function(){if(own!==job)return;clearTimeout(timer);clear();send('error','Indicator worker failed.',q.id);if(worker){worker.terminate();worker=null;}};
+     }catch(err){send('error','Worker could not start: '+err.message,q.id);return;}
+   }
+   timer=setTimeout(()=>{if(own!==job)return;if(worker){worker.terminate();worker=null;}clear();send('error','Indicator exceeded the 3 second execution limit.',q.id)},3000);
+   worker.postMessage(q.payload);
  });
  send('ready','',0);
 })();

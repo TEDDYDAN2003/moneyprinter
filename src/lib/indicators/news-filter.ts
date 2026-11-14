@@ -39,7 +39,8 @@ return {
 
     const shocks = [];
     for (let i = 14; i < n; i++) {
-      const d = new Date(data[i].time * 1000);
+      const rawT = data[i].timestamp || (data[i].time ? (data[i].time > 1e11 ? data[i].time : data[i].time * 1000) : 0);
+      const d = new Date(rawT);
       const utcH = d.getUTCHours();
       const utcM = d.getUTCMinutes();
       const timeMin = utcH * 60 + utcM;

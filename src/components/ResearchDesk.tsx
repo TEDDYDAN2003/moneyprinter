@@ -38,6 +38,7 @@ import type { IndicatorInput } from "./IndicatorEditor";
 import { TradeProgressGauge, type TradeSetup } from "./TradeProgressGauge";
 import { OptimizationModal, type OptimizationCandidate } from "./OptimizationModal";
 import { CorrelationMatrixModal } from "./CorrelationMatrixModal";
+import { PositionBoxOverlay } from "./PositionBoxOverlay";
 
 type Bar = { time: number; open: number; high: number; low: number; close: number };
 type Metric = { bull: number; bear: number; max: number; explanation: string };
@@ -416,10 +417,20 @@ function PriceChart({
   return (
     <div className="relative">
       <div ref={ref} className="w-full overflow-hidden rounded-b-2xl" />
+      {ready > 0 && chartRef.current && seriesRef.current && ref.current && (
+        <PositionBoxOverlay
+          chart={chartRef.current}
+          series={seriesRef.current}
+          node={ref.current}
+          bars={data.candles}
+          activeTrade={showTradeOverlays ? activeTrade : null}
+          plan={plan}
+        />
+      )}
       {ready > 0 && chartRef.current && seriesRef.current && ref.current &&
         programs.map((p, idx) => (
           <IndicatorOverlay
-            key={`${idx}-${p.revision}`}
+            key={(p as any).id || `${idx}-${p.revision}`}
             chart={chartRef.current!}
             series={seriesRef.current!}
             node={ref.current!}
@@ -429,7 +440,7 @@ function PriceChart({
           />
         ))}
       <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-slate-950/80 px-2 py-1 text-[10px] text-slate-400">
-        Scroll to zoom · drag to pan · click candle · cyan/green/red lines show hypothetical entry, TP & SL
+        Scroll to zoom · drag to pan · click candle · cyan/green/red boxes show algorithm long/short entry, TP & SL
       </div>
     </div>
   );
@@ -483,7 +494,12 @@ export function ResearchDesk() {
   });
 
   const activePrograms = useMemo(() => {
-    return activeIndicators.map((id) => indicatorPrograms[id]).filter(Boolean);
+    return activeIndicators
+      .map((id) => {
+        const prog = indicatorPrograms[id];
+        return prog ? { ...prog, id } : null;
+      })
+      .filter((p): p is IndicatorProgram & { id: string } => Boolean(p));
   }, [activeIndicators, indicatorPrograms]);
 
   const program = indicatorPrograms["fvg-reaction"] || null;
@@ -953,6 +969,18 @@ export function ResearchDesk() {
 
   const r = data?.results[selected];
   const c = data?.candles[selected];
+
+  const currentSessionType = useMemo(() => {
+    if (!c) return "off";
+    const rawT = c.time > 1e11 ? c.time : c.time * 1000;
+    const d = new Date(rawT);
+    const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+    if (min >= 0 && min < 360) return "asia"; // 00:00 - 06:00 UTC
+    if (min >= 420 && min <= 600) return "london"; // 07:00 - 10:00 UTC
+    if (min >= 720 && min < 900) return "overlap"; // 12:00 - 15:00 UTC London & NY Overlap
+    if (min >= 900 && min <= 1020) return "ny"; // 15:00 - 17:00 UTC NY Close
+    return "off";
+  }, [c]);
   const sum = Object.values(weights).reduce((a, b) => a + b, 0);
 
   function exportCsv() {
@@ -1367,6 +1395,57 @@ export function ResearchDesk() {
                     onClear={() => setQuickSelected(null)}
                   />
                 )}
+              </div>
+
+              {/* Bottom ICT Sessions & London/NY Overlap Timeline Strip */}
+              <div className="border-t border-slate-800 bg-[#090e17] px-4 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-slate-300">ICT SESSIONS (UTC):</span>
+                    <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium border transition ${
+                      currentSessionType === 'asia' ? 'border-slate-400 bg-slate-800 text-white font-bold ring-1 ring-slate-400/50' : 'border-slate-800 bg-slate-900/60 text-slate-400'
+                    }`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                      ASIA 00:00–06:00
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium border transition ${
+                      currentSessionType === 'london' ? 'border-sky-500 bg-sky-950 text-sky-200 font-bold ring-1 ring-sky-500/50 shadow-sm' : 'border-slate-800 bg-slate-900/60 text-slate-400'
+                    }`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+                      LONDON 07:00–10:00
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 rounded px-2.5 py-0.5 text-[11px] font-medium border transition ${
+                      currentSessionType === 'overlap' ? 'border-emerald-500 bg-emerald-950 text-emerald-200 font-bold ring-1 ring-emerald-500/60 shadow-md shadow-emerald-500/20' : 'border-emerald-800/40 bg-emerald-950/20 text-emerald-400'
+                    }`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      🔥 LONDON &amp; NY OVERLAP 12:00–15:00
+                    </span>
+                    <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium border transition ${
+                      currentSessionType === 'ny' ? 'border-amber-500 bg-amber-950 text-amber-200 font-bold ring-1 ring-amber-500/50 shadow-sm' : 'border-slate-800 bg-slate-900/60 text-slate-400'
+                    }`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                      NY CLOSE 15:00–17:00
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      {c ? new Date(c.time * 1000).toISOString().slice(11, 16) + ' UTC' : ''}
+                    </span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${
+                      currentSessionType === 'overlap' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                      currentSessionType === 'london' ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' :
+                      currentSessionType === 'ny' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                      currentSessionType === 'asia' ? 'bg-slate-700/40 text-slate-300 border-slate-600/40' :
+                      'bg-slate-800/30 text-slate-500 border-slate-800'
+                    }`}>
+                      {currentSessionType === 'overlap' ? '⚡ Peak Volume Overlap (High Edge · 95.7%)' :
+                       currentSessionType === 'london' ? '⚡ London Expansion Session' :
+                       currentSessionType === 'ny' ? '⚡ NY Close & Rebalance' :
+                       currentSessionType === 'asia' ? '🌙 Asia Range Formation' :
+                       'Off-Hours / Low Edge'}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-400">
