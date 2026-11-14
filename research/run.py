@@ -14,7 +14,7 @@ def sample(minutes,count):
 def oanda(minutes,count,before=None,allow_empty=False):
     token=os.environ.get('OANDA_API_TOKEN','').strip().strip("'").strip('"')
     if not token:raise ValueError('Set OANDA_API_TOKEN in your local environment. Use a newly rotated token, not the one shared in chat.')
-    gran={1:'M1',3:'M3',5:'M5',15:'M15',30:'M30',60:'H1',1440:'D',10080:'W'}[minutes]
+    gran={1:'M1',5:'M5',15:'M15',30:'M30',60:'H1',1440:'D',10080:'W'}[minutes]
     headers={'Authorization':'Bearer '+token,'User-Agent':'MoneyPrinter-Research/1.0','Accept':'application/json'}
     # Walk backward by the oldest returned candle. A page can include its
     # boundary, so deduplicate by timestamp and request one extra if needed.
@@ -58,17 +58,21 @@ def oanda(minutes,count,before=None,allow_empty=False):
     if not rows and not allow_empty:raise ValueError('OANDA returned no completed candles.')
     return rows
 
-def aggregate_45(bars):
-    """Three uninterrupted, UTC-aligned completed M15 candles form one M45 bar."""
+def aggregate_bars(bars, source_minutes):
+    """Three uninterrupted UTC-aligned source candles per aggregate."""
+    step=source_minutes*60; duration=step*3
     buckets={}
     for c in bars:
-        start=c['time']-(c['time']%2700);buckets.setdefault(start,[]).append(c)
+        start=c['time']-(c['time']%duration);buckets.setdefault(start,[]).append(c)
     out=[]
     for start,group in sorted(buckets.items()):
         group.sort(key=lambda x:x['time'])
-        if len(group)!=3 or [x['time'] for x in group]!=[start,start+900,start+1800]:continue
+        if len(group)!=3 or [x['time'] for x in group]!=[start,start+step,start+2*step]:continue
         out.append({'time':start,'open':group[0]['open'],'high':max(x['high'] for x in group),'low':min(x['low'] for x in group),'close':group[-1]['close']})
     return out
+
+def aggregate_45(bars):
+    return aggregate_bars(bars,15)
 
 def unavailable_result(c):
     # Daily/weekly bars follow a market calendar and DST rather than the
@@ -91,8 +95,9 @@ def main():
         count=min(5000,max(0,50000-len(old)))
         if not count:raise ValueError('The 50,000 candle limit has been reached.')
         cutoff=old[0]['time']
-        if minutes==45:
-            base=oanda(15,count*3+2,before=cutoff,allow_empty=True);older=aggregate_45(base)[-count:];history_exhausted=len(base)<count*3+2
+        if minutes in (3,45):
+            base_minutes=1 if minutes==3 else 15
+            base=oanda(base_minutes,count*3+2,before=cutoff,allow_empty=True);older=aggregate_bars(base,base_minutes)[-count:];history_exhausted=len(base)<count*3+2
         else:
             older=oanda(minutes,count,before=cutoff,allow_empty=True);history_exhausted=len(older)<count
         older=[c for c in older if c['time']<cutoff]
@@ -102,16 +107,17 @@ def main():
         req=request;source=req.get('source','sample');minutes=int(req.get('minutes',5));count=min(50000,max(100,int(req.get('count',5000))))
         if minutes not in (1,3,5,15,30,45,60,1440,10080) or source not in ('sample','oanda'):raise ValueError('Unsupported data source or timeframe.')
         if source=='sample':bars=sample(minutes,count)
-        elif minutes==45:
-            base=oanda(15,count*3+2);bars=aggregate_45(base)[-count:]
+        elif minutes in (3,45):
+            base_minutes=1 if minutes==3 else 15
+            base=oanda(base_minutes,count*3+2);bars=aggregate_bars(base,base_minutes)[-count:]
         else:bars=oanda(minutes,count)
-        history_exhausted=source=='oanda' and (len(base)<count*3+2 if minutes==45 else len(bars)<count)
+        history_exhausted=source=='oanda' and (len(base)<count*3+2 if minutes in (3,45) else len(bars)<count)
     else:raise ValueError('Unsupported research operation.')
     if not bars:raise ValueError('No complete candles available for this timeframe.')
     available=minutes not in (1440,10080)
     results=analyze(bars,minutes,req.get('weights')) if available else [unavailable_result(c) for c in bars]
     bt=backtest(bars,results,minutes,rr=max(.25,min(5,float(req.get('rr',1.5)))),stop_atr=max(.1,min(10,float(req.get('stopAtr',1)))),horizon=max(1,min(100,int(req.get('horizon',20)))),cost=max(0,min(100,float(req.get('cost',0)))),threshold=max(50,min(100,float(req.get('threshold',65))))) if available else {}
-    note=('45m is derived from complete 15m candles aligned to UTC; incomplete groups are excluded. ' if minutes==45 and source=='oanda' else '')+('Daily/weekly: chart only; scores, backtesting and indicators are disabled until calendar-aware support is implemented. OANDA bars use New York 17:00 and Friday weekly alignment. ' if not available else '')
+    note=(f'{minutes}m is derived from complete {base_minutes}m candles aligned to UTC; incomplete groups are excluded. ' if minutes in (3,45) and source=='oanda' else '')+('Daily/weekly: chart only; scores, backtesting and indicators are disabled until calendar-aware support is implemented. OANDA bars use New York 17:00 and Friday weekly alignment. ' if not available else '')
     # Persist the exact candle snapshot, parameters and every score locally.
     # No API token or full process environment enters the database.
     root=os.path.join(os.path.dirname(__file__),'data');os.makedirs(root,exist_ok=True)

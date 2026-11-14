@@ -48,7 +48,7 @@ export const indicatorSandboxHtml = String.raw`<!doctype html><html><head><meta 
    job++;const own=job;if(worker)worker.terminate();clearTimeout(timer);canvas.width=q.payload.width;canvas.height=q.payload.height;
    try{worker=new Worker(url);}catch(err){send('error','Worker could not start: '+err.message,q.id);return;}
    timer=setTimeout(()=>{if(own!==job)return;worker.terminate();clear();send('error','Indicator exceeded the 3 second execution limit.',q.id)},3000);
-   worker.onmessage=function(event){if(own!==job)return;clearTimeout(timer);const r=event.data;if(r.ok){const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.drawImage(r.bitmap,0,0);r.bitmap.close();send('ok','Indicator rendered',q.id);}else{clear();send('error',r.error,q.id);}worker.terminate();};
+   worker.onmessage=function(event){if(own!==job)return;clearTimeout(timer);const r=event.data;if(r.ok){parent.postMessage({channel:'mp-indicator-v1',type:'frame',id:q.id,bitmap:r.bitmap,width:q.payload.width,height:q.payload.height},'*',[r.bitmap]);}else{clear();send('error',r.error,q.id);}worker.terminate();};
    worker.onerror=function(){if(own!==job)return;clearTimeout(timer);clear();send('error','Indicator worker failed.',q.id);worker.terminate();};worker.postMessage(q.payload);
  });
  send('ready','',0);

@@ -35,10 +35,17 @@ class TimeframeTests(unittest.TestCase):
    q=parse_qs(urlparse(req.full_url).query);received.append(q)
    return Reply([{'time':'2025-01-01T00:00:00Z','complete':True,'mid':{'o':'10','h':'11','l':'9','c':'10'}}])
   with patch.dict('os.environ',{'OANDA_API_TOKEN':'fake'}),patch('urllib.request.urlopen',mock):
-   for tf in (1,3,30,1440,10080):oanda(tf,1)
-  self.assertEqual([q['granularity'][0] for q in received],['M1','M3','M30','D','W'])
+   for tf in (1,30,1440,10080):oanda(tf,1)
+  self.assertEqual([q['granularity'][0] for q in received],['M1','M30','D','W'])
   self.assertEqual(received[-1]['alignmentTimezone'],['America/New_York'])
   self.assertEqual(received[-1]['weeklyAlignment'],['Friday'])
+ def test_3_minute_aggregation(self):
+  from run import aggregate_bars
+  data=[{'time':i*60,'open':i,'high':i+2,'low':i-1,'close':i+1} for i in range(6)]
+  result=aggregate_bars(data,1)
+  self.assertEqual([x['time'] for x in result],[0,180])
+  self.assertEqual((result[0]['open'],result[0]['high'],result[0]['low'],result[0]['close']),(0,4,-1,3))
+  self.assertEqual(len(aggregate_bars([c for i,c in enumerate(data) if i!=1],1)),1)
  def test_45_minute_aggregation_and_gap(self):
   from run import aggregate_45
   start=1704067200 # divisible by 2700
