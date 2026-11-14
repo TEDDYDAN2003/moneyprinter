@@ -54,3 +54,12 @@ Rendering is a separate transparent overlay and may look different from Free Cha
 
 ## Tests
 `python3 -m unittest discover -s research -p 'test_*.py'`. Tests include changing future candles and checking prior scores are unchanged. They are not proof of absence of every form of bias; validate with independent data before drawing conclusions.
+
+
+## Replay and suggestion win-rate checker
+
+Load an intraday chart, click **Backtest** in its header, click a past candle, and choose **Start at selected candle**. Play, pause, step and speed controls work in fullscreen. Only candles through the current replay cursor are supplied to the chart and indicator; analysis uses the causal scores calculated for that completed candle. Reset before picking another start or changing simulation parameters. Backward history loading is paused while the replay panel is open.
+
+The prototype proposes one pending or open trade at a time when the existing heuristic score reaches the selected threshold and a matching, fresh three-candle FVG with a direction-matching middle candle lies beyond the close. Entry is the near FVG edge, the stop is beyond its far edge plus an ATR buffer, and the target is fixed R. A pending limit can fill by touch on a subsequent candle, expire or cancel on an opposing score. A position resolves on the first later stop/target touch. If entry and exit occur in one bar, both exits occur in one bar, a relevant gap occurs, or the hold limit expires, the outcome is excluded; OHLC data cannot determine the sequence or actual execution. The round-trip price cost reduces net R; it is not a spread/slippage execution model. Wins and losses are gross target/stop hits, not net-profit classification. Pending and open positions are not completed trades.
+
+Recent same-direction outcomes in *this replay* are displayed only after 30 resolved trades (up to the latest 100); this is a descriptive sample, not a calibrated probability or learning algorithm. Parameters are fixed for the run. The suggestion win rate is **not** the FVG study's grab/sweep outcome rate. The selected FVG indicator has separate event statistics, and its adjustable study inputs do not control this prototype strategy. The scorer includes simplified structure/bias and liquidity-reclaim heuristics, not the requested exact no-wick script, independently confirmed order blocks, or a trained model. It does not consume live prices, place orders, learn automatically, or guarantee improvement. Test later periods separately and retain excluded counts when assessing results.

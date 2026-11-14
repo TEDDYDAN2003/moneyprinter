@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript'),Module=require('module');
+const source=fs.readFileSync('src/lib/replay.ts','utf8');const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;const m=new Module('replay');m._compile(compiled,'replay.js');const {seedReplay,stepReplay,replayDefaults}=m.exports;
+const bars=[{time:0,open:101,high:102,low:100,close:101},{time:300,open:101,high:104,low:101,close:103},{time:600,open:104,high:106,low:104,close:105},{time:900,open:105,high:105.5,low:103.5,close:104.5},{time:1200,open:104.5,high:108,low:104,close:107}];
+const r={ready:true,bull:80,bear:20,net:60,atr:2,htf:1,mtf:1,ltf:1,break:'Bullish BOS',sweep:'None',zones:[{created:2,top:104,bottom:102,direction:1,status:'fresh'}]};const results=bars.map(()=>r),s={...replayDefaults,rr:1,stopAtr:.5};
+let x=seedReplay(2,bars,results,s);assert.equal(x.plan.entry,104);assert.equal(x.plan.stop,101);assert.equal(x.plan.target,107);x=stepReplay(x,bars,results,5,s);assert.equal(x.plan.filled,3);x=stepReplay(x,bars,results,5,s);assert.equal(x.outcomes[0].outcome,'win');assert.equal(x.outcomes[0].netR,1);
+let ambiguous=bars.map(x=>({...x}));ambiguous[3].low=100; x=stepReplay(seedReplay(2,ambiguous,results,s),ambiguous,results,5,s);assert.equal(x.outcomes[0].outcome,'ambiguous');assert.equal(x.outcomes[0].netR,null);
+let gap=bars.map(x=>({...x}));gap[3].time=1200;x=stepReplay(seedReplay(2,gap,results,s),gap,results,5,s);assert.equal(x.outcomes[0].outcome,'gap');
+let altered=bars.map(x=>({...x}));altered[4].high=10000;assert.deepEqual(seedReplay(2,bars,results,s),seedReplay(2,altered,results,s));
+let reverse=bars.map(x=>({...x}));reverse[1].close=100;assert.equal(seedReplay(2,reverse,results,s).plan,null);
+console.log('Replay tests passed: next-bar fill, exit, tie/gap exclusion, prefix invariance, middle-candle filter.');
