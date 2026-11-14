@@ -11,7 +11,7 @@ export function IndicatorOverlay({chart,series,node,bars,program,onStatus}:{char
   function render(){
    const scale=chart.timeScale(),x0=scale.logicalToCoordinate(0 as import('lightweight-charts').Logical),x1=scale.logicalToCoordinate(1 as import('lightweight-charts').Logical),range=scale.getVisibleLogicalRange(),base=bars[bars.length-1]?.close,y0=series.priceToCoordinate(base),y1=series.priceToCoordinate(base+1);
    if(x0===null||x1===null||!range||y0===null||y1===null){callback.current('Waiting for chart geometry…');return;}
-   const width=Math.max(1,Math.round(node.clientWidth)),height=500,paneWidth=Math.max(1,width-chart.priceScale('right').width()),paneHeight=Math.max(1,height-scale.height());
+   const width=Math.max(1,Math.round(node.clientWidth)),height=Math.max(1,Math.round(node.clientHeight)),paneWidth=Math.max(1,width-chart.priceScale('right').width()),paneHeight=Math.max(1,height-scale.height());
    const id=++seq.current;
    frame.current?.contentWindow?.postMessage({channel:'mp-indicator-v1',type:'render',id,payload:{script:program.script,inputs:program.inputs,bars,symbol:'XAU_USD',width,height,paneWidth,paneHeight,x0,step:x1-x0,y0,yStep:y1-y0,yBase:base,visible:{from:range.from,to:range.to}}},'*');
   }
@@ -19,5 +19,5 @@ export function IndicatorOverlay({chart,series,node,bars,program,onStatus}:{char
   chart.timeScale().subscribeVisibleLogicalRangeChange(schedule);node.addEventListener('wheel',schedule,{passive:true});node.addEventListener('pointerup',schedule);const ro=new ResizeObserver(schedule);ro.observe(node);schedule();
   return()=>{clearTimeout(timer);chart.timeScale().unsubscribeVisibleLogicalRangeChange(schedule);node.removeEventListener('wheel',schedule);node.removeEventListener('pointerup',schedule);ro.disconnect();};
  },[frameReady,chart,series,node,bars,program]);
- return <iframe ref={frame} title="Isolated custom indicator renderer" sandbox="allow-scripts" srcDoc={indicatorSandboxHtml} className="pointer-events-none absolute inset-0 h-[500px] w-full border-0" />;
+ return <iframe ref={frame} title="Isolated custom indicator renderer" sandbox="allow-scripts" srcDoc={indicatorSandboxHtml} className="pointer-events-none absolute inset-0 h-full w-full border-0" />;
 }

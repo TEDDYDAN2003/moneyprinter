@@ -1,12 +1,19 @@
 "use client";
-import React,{useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
+import {fvgReactionInputs,fvgReactionScript} from '@/lib/indicators/fvg-reaction';
 export type IndicatorInput={id:string;name:string;type:string;defval:string|number|boolean;options?:string[];min?:number;max?:number;step?:number};
 export type IndicatorProgram={script:string;inputs:Record<string,string|number|boolean>;revision:number};
 const defaultJson=JSON.stringify([{id:'colour',name:'Label colour',type:'color',defval:'#34d399'}],null,2);
 const defaultScript=`// Free Chart factory body. Use completed bars only.\nreturn {\n  figures: [],\n  calc(data, indicator) {\n    const p = indicator.extendData.inputs;\n    const i = Math.max(0, data.length - 2);\n    indicator._example = { i, price: data[i]?.high, colour: p.colour };\n    return data.map(() => ({}));\n  },\n  draw(args) {\n    const z = args.indicator._example;\n    if (z && Number.isFinite(z.price))\n      bv.text(args, { index: z.i, price: z.price, text: 'EXAMPLE', color: z.colour, align: 'center', baseline: 'bottom', offsetY: -8 });\n    return false;\n  }\n};`;
 const css='w-full rounded-lg border border-slate-700 bg-[#090f17] p-3 font-mono text-xs leading-5 text-slate-300 outline-none focus:border-emerald-600';
-export function IndicatorEditor({onApply,status,hasData}:{onApply:(p:IndicatorProgram|null)=>void;status:string;hasData:boolean}){
+export function IndicatorEditor({onApply,status,hasData,preset}:{onApply:(p:IndicatorProgram|null)=>void;status:string;hasData:boolean;preset:string}){
  const [json,setJson]=useState(defaultJson),[script,setScript]=useState(defaultScript),[definitions,setDefinitions]=useState<IndicatorInput[]>([]),[values,setValues]=useState<Record<string,string|number|boolean>>({}),[error,setError]=useState(''),[compiledScript,setCompiledScript]=useState('');
+ const applyRef=useRef(onApply);applyRef.current=onApply;
+ useEffect(()=>{
+  if(preset!=='fvg-reaction'||!hasData)return;
+  const defs=fvgReactionInputs as IndicatorInput[],vals:Record<string,string|number|boolean>={};
+  defs.forEach(d=>{vals[d.id]=d.defval});setJson(JSON.stringify(fvgReactionInputs,null,2));setScript(fvgReactionScript);setCompiledScript(fvgReactionScript);setDefinitions(defs);setValues(vals);setError('');applyRef.current({script:fvgReactionScript,inputs:vals,revision:Date.now()});
+ },[preset,hasData]);
  function parse(){
   if(json.length>100000||script.length>250000)throw Error('The JSON or script is too large.');
   let arr:unknown;try{arr=JSON.parse(json);}catch(e){throw Error('Invalid inputs JSON: '+(e instanceof Error?e.message:''));}
