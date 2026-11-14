@@ -216,80 +216,118 @@ def _default() -> dict:
     }
 
 
-def compute_vwma(candles: List[dict], length: int = 20) -> List[Optional[float]]:
-    """Strictly causal VWMA using tick-volume proxy."""
-    n = len(candles)
-    vwma: List[Optional[float]] = [None] * n
+def supersmoother_2pole(series: List[float], period: int = 14) -> List[float]:
+    """John Ehlers 2-Pole SuperSmoother Gaussian IIR filter."""
+    p = max(4, period)
+    a1 = math.exp(-math.sqrt(2.0) * math.pi / p)
+    b1 = 2.0 * a1 * math.cos(math.sqrt(2.0) * math.pi / p)
+    c2 = b1
+    c3 = -a1 * a1
+    c1 = 1.0 - c2 - c3
 
-    vols: List[float] = []
+    n = len(series)
+    if n == 0:
+        return []
+    if n == 1:
+        return [series[0]]
+
+    out = [0.0] * n
+    out[0] = series[0]
+    out[1] = series[1]
+    for i in range(2, n):
+        out[i] = c1 * (series[i] + series[i - 1]) * 0.5 + c2 * out[i - 1] + c3 * out[i - 2]
+    return out
+
+
+def compute_vwma(candles: List[dict], length: int = 14) -> List[Optional[float]]:
+    """Strictly causal Quantum Zero-Lag Volume-Smoothed curve using Ehlers 2-Pole filter."""
+    n = len(candles)
+    if n < 5:
+        return [c['close'] for c in candles]
+
+    lag = max(1, (length - 1) // 2)
+
+    # 1. Volume proxy
+    vols = []
     for c in candles:
         rng = c['high'] - c['low']
-        if rng <= 0:
-            vols.append(0.001)
-            continue
         body = abs(c['close'] - c['open'])
-        body_ratio = body / rng
-        tick_vol = rng * (body_ratio + 0.5)
-        vols.append(tick_vol)
+        tv = rng * (body / rng + 0.5) if rng > 0 else 0.001
+        vols.append(tv)
 
-    for i in range(length - 1, n):
-        numerator = sum(candles[j]['close'] * vols[j] for j in range(i - length + 1, i + 1))
-        denominator = sum(vols[j] for j in range(i - length + 1, i + 1))
-        if denominator > 0:
-            vwma[i] = numerator / denominator
-
-    return vwma
-
-
-def compute_ema(candles: List[dict], length: int = 20) -> List[Optional[float]]:
-    """Strictly causal incremental EMA on close prices."""
-    n = len(candles)
-    ema: List[Optional[float]] = [None] * n
-    k = 2.0 / (length + 1)
-    seed = 0.0
+    # Relative volume (rolling window)
+    rel_vol = [1.0] * n
+    vol_sum = 0.0
     for i in range(n):
-        cl = candles[i]['close']
-        if i < length - 1:
-            seed += cl
-        elif i == length - 1:
-            seed += cl
-            ema[i] = seed / length
-        else:
-            ema[i] = cl * k + (ema[i - 1] or cl) * (1 - k)
-    return ema
+        vol_sum += vols[i]
+        if i >= length:
+            vol_sum -= vols[i - length]
+        avg_v = vol_sum / length if i >= length else vol_sum / (i + 1)
+        rel_vol[i] = max(0.4, min(2.5, vols[i] / avg_v)) if avg_v > 0 else 1.0
+
+    # 2. Zero-lag momentum compensation
+    z_vol_price = [0.0] * n
+    for i in range(n):
+        past_idx = max(0, i - lag)
+        momentum = candles[i]['close'] - candles[past_idx]['close']
+        z_vol_price[i] = candles[i]['close'] + momentum * (rel_vol[i] * 0.75)
+
+    # 3. SuperSmoother
+    smoothed = supersmoother_2pole(z_vol_price, period=length)
+    return [round(x, 5) for x in smoothed]
 
 
-def vwma_ema_crossover(candles: List[dict], length: int = 20) -> List[dict]:
-    """Strictly causal VWMA - EMA divergence and crossover detection."""
+def compute_ema(candles: List[dict], length: int = 14) -> List[Optional[float]]:
+    """Strictly causal Zero-Lag Baseline price smoother using Ehlers 2-Pole filter."""
     n = len(candles)
+    if n < 5:
+        return [c['close'] for c in candles]
+
+    lag = max(1, (length - 1) // 2)
+    z_close = [0.0] * n
+    for i in range(n):
+        past_idx = max(0, i - lag)
+        momentum = candles[i]['close'] - candles[past_idx]['close']
+        z_close[i] = candles[i]['close'] + momentum * 0.75
+
+    smoothed = supersmoother_2pole(z_close, period=length)
+    return [round(x, 5) for x in smoothed]
+
+
+def vwma_ema_crossover(candles: List[dict], length: int = 14, min_divergence: float = 0.15) -> List[dict]:
+    """Strictly causal Quantum Zero-Lag VWMA vs Baseline crossover detection with hysteresis."""
+    n = len(candles)
+    if n == 0:
+        return []
     vwma = compute_vwma(candles, length)
     ema = compute_ema(candles, length)
 
-    atrs: List[Optional[float]] = [None] * n
+    # Wilder's incremental ATR
+    atrs: List[float] = [1.0] * n
     atr_prev: Optional[float] = None
+    atr_seed = 0.0
     for i, c in enumerate(candles):
         prev = candles[i - 1] if i else c
         tr = max(c['high'] - c['low'],
                  abs(c['high'] - prev['close']),
                  abs(c['low'] - prev['close']))
         if i < 14:
+            atr_seed += tr
             if i == 13:
-                atr_prev = sum(
-                    max(candles[j]['high'] - candles[j]['low'],
-                        abs(candles[j]['high'] - candles[max(0, j - 1)]['close']),
-                        abs(candles[j]['low'] - candles[max(0, j - 1)]['close']))
-                    for j in range(14)
-                ) / 14
+                atr_prev = atr_seed / 14.0
                 atrs[i] = atr_prev
         elif atr_prev is not None:
-            atr_prev = (atr_prev * 13 + tr) / 14
+            atr_prev = (atr_prev * 13.0 + tr) / 14.0
             atrs[i] = atr_prev
 
     results: List[dict] = []
+    last_signal_dir = 0
+    bars_since_signal = 999
+
     for i in range(n):
         v = vwma[i]
         e = ema[i]
-        if v is None or e is None:
+        if v is None or e is None or i < 2:
             results.append({
                 'vwma': None, 'ema': None, 'delta': 0,
                 'crossover': 0, 'divergence_strength': 0
@@ -297,20 +335,30 @@ def vwma_ema_crossover(candles: List[dict], length: int = 20) -> List[dict]:
             continue
 
         delta = v - e
-        prev_v = vwma[i - 1] if i > 0 else None
-        prev_e = ema[i - 1] if i > 0 else None
+        v_prev = vwma[i - 1] if (i > 0 and vwma[i - 1] is not None) else v
+        e_prev = ema[i - 1] if (i > 0 and ema[i - 1] is not None) else e
+        diff0 = v_prev - e_prev
+        diff1 = delta
 
+        atr_val = atrs[i] if atrs[i] > 0 else 1.0
+        threshold = min_divergence * atr_val
+        div_strength = delta / atr_val
+
+        bars_since_signal += 1
         crossover = 0
-        if prev_v is not None and prev_e is not None:
-            was_above = prev_v >= prev_e
-            is_above = v >= e
-            if is_above and not was_above:
-                crossover = 1
-            elif not is_above and was_above:
-                crossover = -1
 
-        atr_val = atrs[i] or 1.0
-        div_strength = delta / atr_val if atr_val > 0 else 0
+        # Bullish: transitioned from negative to positive >= threshold
+        is_bull_cross = (diff0 <= 0 and diff1 > 0) or (diff0 < threshold and diff1 >= threshold)
+        is_bear_cross = (diff0 >= 0 and diff1 < 0) or (diff0 > -threshold and diff1 <= -threshold)
+
+        if is_bull_cross and last_signal_dir != 1 and bars_since_signal >= 4:
+            last_signal_dir = 1
+            bars_since_signal = 0
+            crossover = 1
+        elif is_bear_cross and last_signal_dir != -1 and bars_since_signal >= 4:
+            last_signal_dir = -1
+            bars_since_signal = 0
+            crossover = -1
 
         results.append({
             'vwma': round(v, 5),

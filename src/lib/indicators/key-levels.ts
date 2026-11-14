@@ -38,6 +38,16 @@ return {
     let swings = [], orderBlocks = [], mssZones = [];
     let lastHigh = null, lastLow = null;
 
+    // ATR
+    const atr = new Array(n).fill(null);
+    let atrS = 0, atrP = null;
+    for (let i = 0; i < n; i++) {
+      const c = data[i], pr = i ? data[i-1] : c;
+      const tr = Math.max(c.high - c.low, Math.abs(c.high - pr.close), Math.abs(c.low - pr.close));
+      if (i < 14) { atrS += tr; if (i === 13) { atrP = atrS / 14; atr[i] = atrP; } }
+      else if (atrP !== null) { atrP = (atrP * 13 + tr) / 14; atr[i] = atrP; }
+    }
+
     for (let i = span; i < n; i++) {
       const pCandle = data[i - span];
       const win = data.slice(i - span * 2, i + 1);
@@ -53,15 +63,16 @@ return {
         swings.push(lastLow);
       }
 
-      // Order Block detection: last opposing candle before displacement
+      // Order Block detection: last opposing candle before displacement (body >= 1.4 * ATR)
       const c = data[i], prev = data[i - 1];
-      const tr = Math.max(c.high - c.low, Math.abs(c.high - prev.close));
+      const cAtr = atr[i] || 1.0;
       const body = Math.abs(c.close - c.open);
-      if (body >= 1.5 * tr) {
+      const isOpposing = (c.close > c.open && prev.close < prev.open) || (c.close < c.open && prev.close > prev.open);
+      if (body >= 1.4 * cAtr && isOpposing) {
         const isBull = c.close > c.open;
         orderBlocks.push({
           from: i - 1,
-          to: Math.min(n - 1, i + 35),
+          to: Math.min(n - 1, i + 30),
           top: Math.max(prev.open, prev.close),
           bottom: Math.min(prev.open, prev.close),
           dir: isBull ? 1 : -1

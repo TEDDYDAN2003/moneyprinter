@@ -457,7 +457,7 @@ export function ResearchDesk() {
   }
 
   const [infoOpen, setInfoOpen] = useState(false);
-  const [clusterExpanded, setClusterExpanded] = useState(true);
+  const [clusterExpanded, setClusterExpanded] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [replayCursor, setReplayCursor] = useState<number | null>(null);
   const [replayPlan, setReplayPlan] = useState<Plan | null>(null);
