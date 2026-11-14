@@ -10,7 +10,7 @@ export const fvgReactionInputs = [
 {id:'showBear',name:'Show bearish FVGs',type:'bool',defval:true},
 {id:'showEvents',name:'Show event arrows (colour = grab / sweep, direction = outcome)',type:'bool',defval:true},
 {id:'showTargets',name:'Show outcome target levels',type:'bool',defval:false},
-{id:'showTable',name:'Show statistics table',type:'bool',defval:true},
+{id:'showTable',name:'Show original FVG statistics table',type:'bool',defval:false},
 {id:'tablePos',name:'Table position',type:'select',options:['top_right','top_left','bottom_right','bottom_left'],defval:'top_right'},
 {id:'maxDraw',name:'Maximum recent FVGs displayed',type:'int',defval:150,min:10,max:500,step:10},
 {id:'opacity',name:'FVG fill opacity (%)',type:'int',defval:16,min:0,max:80,step:1},
@@ -21,7 +21,7 @@ export const fvgReactionInputs = [
 ];
 export const fvgReactionScript = String.raw`
 // Free Chart factory body. Study only: no orders, guarantees, or prediction.
-const defaults={atrLength:14,atrMultiple:1,outcomeBars:20,zoneLife:100,minGapATR:0,requireMid:true,showBull:true,showBear:true,showEvents:true,showTargets:false,showTable:true,tablePos:'top_right',maxDraw:150,opacity:16,bullColor:'#22c55e',bearColor:'#f87171',grabColor:'#fbbf24',sweepColor:'#c084fc'};
+const defaults={atrLength:14,atrMultiple:1,outcomeBars:20,zoneLife:100,minGapATR:0,requireMid:true,showBull:true,showBear:true,showEvents:true,showTargets:false,showTable:false,tablePos:'top_right',maxDraw:150,opacity:16,bullColor:'#22c55e',bearColor:'#f87171',grabColor:'#fbbf24',sweepColor:'#c084fc'};
 const KEYS=['bullGrab','bullSweep','bearGrab','bearSweep'];
 return {
   figures:[],

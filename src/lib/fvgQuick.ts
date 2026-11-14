@@ -4,7 +4,7 @@ export type QuickBar={time:number;open:number;high:number;low:number;close:numbe
 export type StudyOptions={atrLength:number;zoneLife:number;minGapATR:number;requireMid:boolean;showBull:boolean;showBear:boolean};
 export type QuickParams={rr:number;stop:'swing'|'fvg'|'atr'|'protected'|'retest';buffer:number;atrStop:number;swingLength:number;externalLength:number;horizon:number;lookback:number;displacement:'all'|'low'|'medium'|'high';mss:'all'|'only'|'exclude';cost:number;spread:number;slippage:number;target:'rr'|'swing'};
 export type QuickOutcome='win'|'loss'|'ambiguous'|'gap'|'timeout'|'open'|'no-stop'|'no-target'|'no-confirmation'|'waiting';
-export type Scenario={mode:'touch'|'confirmation';outcome:QuickOutcome;entry:number|null;stop:number|null;target:number|null;rrTarget:number|null;obstacle:number|null;obstacleBeforeTarget:boolean;risk:number|null;rewardR:number|null;cost:number;netR:number|null;stopReason:string;entryIndex:number|null;stopOptions:{fvg:number|null;retest:number|null;protected:number|null;swing:number|null;atr:number|null}};
+export type Scenario={mode:'touch'|'confirmation';outcome:QuickOutcome;entry:number|null;stop:number|null;target:number|null;rrTarget:number|null;obstacle:number|null;obstacleBeforeTarget:boolean;risk:number|null;rewardR:number|null;cost:number;netR:number|null;stopReason:string;entryIndex:number|null;resolutionIndex:number|null;stopOptions:{fvg:number|null;retest:number|null;protected:number|null;swing:number|null;atr:number|null}};
 export type QuickZone={id:number;created:number;end:number;direction:1|-1;top:number;bottom:number;atr:number|null;gapAtr:number|null;displacement:number|null;displacementClass:'low'|'medium'|'high'|'unknown';mss:boolean;priorTrend:number;formationInternal:number;formationExternal:number;middleBreak:string;touch:number|null;event:'grab'|'sweep'|null;reaction:'inside'|'rejection'|'invalidation'|null;depth:number|null;closePosition:number|null;reactionBodyAtr:number|null;reactionUpperAtr:number|null;reactionLowerAtr:number|null;reactionCloseRange:number|null;retestInternal:number|null;retestExternal:number|null;protectedBreak:boolean;externalProtectedBreak:boolean;age:number;touchEpisodes:number;approachAtr:number|null;efficiency:number|null;rangeLow:number|null;rangeHigh:number|null;entry:number|null;stop:number|null;target:number|null;outcome:QuickOutcome|null;netR:number|null;touchScenario:Scenario|null;confirmationScenario:Scenario|null;preview:Scenario|null;shiftOutcome:'with'|'against'|'ambiguous'|'gap'|'open'|null;shiftEnd:number|null};
 export const quickDefaults:QuickParams={rr:1.5,stop:'swing',buffer:.1,atrStop:1,swingLength:3,externalLength:10,horizon:30,lookback:5000,displacement:'all',mss:'all',cost:0,spread:0,slippage:0,target:'rr'};
 export const defaultStudy:StudyOptions={atrLength:14,zoneLife:100,minGapATR:0,requireMid:true,showBull:true,showBear:true};
@@ -20,11 +20,11 @@ export function runFvgQuick(bars:QuickBar[],asOf:number,minutes:number,p:QuickPa
  const zones:QuickZone[]=[],active:QuickZone[]=[];
  function scenario(z:QuickZone,touch:number,mode:'touch'|'confirmation'):Scenario{
   const c=bars[touch],d=z.direction,entryIndex=mode==='touch'?touch:touch+1,known=mode==='touch'?touch-1:touch,cost=p.cost+p.spread+2*p.slippage;
-  const v:Scenario={mode,outcome:'waiting',entry:null,stop:null,target:null,rrTarget:null,obstacle:null,obstacleBeforeTarget:false,risk:null,rewardR:null,cost,netR:null,stopReason:'',entryIndex:null,stopOptions:{fvg:null,retest:null,protected:null,swing:null,atr:null}};
+  const v:Scenario={mode,outcome:'waiting',entry:null,stop:null,target:null,rrTarget:null,obstacle:null,obstacleBeforeTarget:false,risk:null,rewardR:null,cost,netR:null,stopReason:'',entryIndex:null,resolutionIndex:null,stopOptions:{fvg:null,retest:null,protected:null,swing:null,atr:null}};
   if(mode==='confirmation'){
    const mid=(z.top+z.bottom)/2,confirm=z.reaction!=='invalidation'&&(d===1?c.close>c.open&&c.close>=mid:c.close<c.open&&c.close<=mid);
-   if(!confirm){v.outcome='no-confirmation';return v;}if(entryIndex>last)return v;
-   if(bars[entryIndex].time-c.time!==span){v.outcome='gap';return v;}
+   if(!confirm){v.outcome='no-confirmation';v.resolutionIndex=touch;return v;}if(entryIndex>last)return v;
+   if(bars[entryIndex].time-c.time!==span){v.outcome='gap';v.resolutionIndex=entryIndex;return v;}
   }
   const entry=mode==='touch'?(d===1?z.top:z.bottom):bars[entryIndex].open;v.entry=entry;v.entryIndex=entryIndex;
   const priorStop=d===1?lo[known]:hi[known],prot=d===1?protectedLow[known]:protectedHigh[known],tatr=atr[known];
@@ -35,16 +35,16 @@ export function runFvgQuick(bars:QuickBar[],asOf:number,minutes:number,p:QuickPa
   else if(p.stop==='retest'){stop=mode==='confirmation'?(d===1?c.low:c.high)-d*p.buffer:null;v.stopReason=mode==='confirmation'?'Retest extreme ± buffer':'Retest extreme is unknown at touch';}
   else if(p.stop==='fvg'){stop=(d===1?z.bottom:z.top)-d*p.buffer;v.stopReason='Far FVG edge ± buffer';}
   else {stop=tatr===null?null:entry-d*(tatr*p.atrStop+p.buffer);v.stopReason='ATR distance + buffer';}
-  v.stop=stop;if(stop===null||!Number.isFinite(stop)||d*(entry-stop)<=0){v.outcome='no-stop';return v;}const risk=d*(entry-stop);v.risk=risk;v.rrTarget=entry+d*risk*p.rr;
+  v.stop=stop;if(stop===null||!Number.isFinite(stop)||d*(entry-stop)<=0){v.outcome='no-stop';v.resolutionIndex=entryIndex;return v;}const risk=d*(entry-stop);v.risk=risk;v.rrTarget=entry+d*risk*p.rr;
   const obstacle=d===1?hi[known]:lo[known];v.obstacle=obstacle!==null&&d*(obstacle-entry)>0?obstacle:null;v.obstacleBeforeTarget=v.obstacle!==null&&d*(v.obstacle-v.rrTarget)<0;
-  v.target=p.target==='swing'?v.obstacle:v.rrTarget;if(v.target===null){v.outcome='no-target';return v;}const target=v.target;v.rewardR=d*(target-entry)/risk;
-  if(mode==='touch'&&(d===1?c.open<entry:c.open>entry)){v.outcome='gap';return v;}
+  v.target=p.target==='swing'?v.obstacle:v.rrTarget;if(v.target===null){v.outcome='no-target';v.resolutionIndex=entryIndex;return v;}const target=v.target;v.rewardR=d*(target-entry)/risk;
+  if(mode==='touch'&&(d===1?c.open<entry:c.open>entry)){v.outcome='gap';v.resolutionIndex=entryIndex;return v;}
   const first=bars[entryIndex],firstStop=d===1?first.low<=stop:first.high>=stop,firstTarget=d===1?first.high>=target:first.low<=target;
-  if(firstStop||firstTarget){if(mode==='touch'||firstStop&&firstTarget)v.outcome='ambiguous';else{v.outcome=firstTarget?'win':'loss';v.netR=(firstTarget?v.rewardR:-1)-cost/risk;}return v;}
+  if(firstStop||firstTarget){v.resolutionIndex=entryIndex;if(mode==='touch'||firstStop&&firstTarget)v.outcome='ambiguous';else{v.outcome=firstTarget?'win':'loss';v.netR=(firstTarget?v.rewardR:-1)-cost/risk;}return v;}
   v.outcome='open';for(let j=entryIndex+1;j<=Math.min(last,entryIndex+p.horizon);j++){
-   const x=bars[j];if(x.time-bars[j-1].time!==span||x.open<=Math.min(stop,target)||x.open>=Math.max(stop,target)){v.outcome='gap';break;}
+   const x=bars[j];if(x.time-bars[j-1].time!==span||x.open<=Math.min(stop,target)||x.open>=Math.max(stop,target)){v.outcome='gap';v.resolutionIndex=j;break;}
    const sl=d===1?x.low<=stop:x.high>=stop,tp=d===1?x.high>=target:x.low<=target;
-   if(sl&&tp){v.outcome='ambiguous';break;}if(sl||tp){v.outcome=tp?'win':'loss';v.netR=(tp?v.rewardR:-1)-cost/risk;break;}if(j-entryIndex>=p.horizon)v.outcome='timeout';
+   if(sl&&tp){v.outcome='ambiguous';v.resolutionIndex=j;break;}if(sl||tp){v.outcome=tp?'win':'loss';v.netR=(tp?v.rewardR:-1)-cost/risk;v.resolutionIndex=j;break;}if(j-entryIndex>=p.horizon){v.outcome='timeout';v.resolutionIndex=j;}
   }return v;
  }
  for(let i=Math.max(2,first);i<=last;i++){
@@ -72,7 +72,7 @@ export function runFvgQuick(bars:QuickBar[],asOf:number,minutes:number,p:QuickPa
  // Provisional plan uses only levels known at the selected close; no fill or outcome is assumed.
  for(const z of active){const d=z.direction,entry=d===1?z.top:z.bottom,prior=d===1?lo[last]:hi[last],prot=d===1?protectedLow[last]:protectedHigh[last],tatr=atr[last],cost=p.cost+p.spread+2*p.slippage,opts={fvg:(d===1?z.bottom:z.top)-d*p.buffer,retest:null,protected:prot===null?null:prot-d*p.buffer,swing:prior===null?null:prior-d*p.buffer,atr:tatr===null?null:entry-d*(tatr*p.atrStop+p.buffer)};
   const stop=opts[p.stop],reason=p.stop==='retest'?'Retest extreme is unknown before touch':p.stop==='fvg'?'Far FVG edge ± buffer':p.stop==='swing'?'Previous confirmed swing ± buffer':p.stop==='protected'?'Protected structure level ± buffer':'ATR distance + buffer',risk=stop!==null&&d*(entry-stop)>0?d*(entry-stop):null,rrTarget=risk!==null?entry+d*risk*p.rr:null,ob=d===1?hi[last]:lo[last],obstacle=ob!==null&&d*(ob-entry)>0?ob:null,target=p.target==='swing'?obstacle:rrTarget;
-  z.preview={mode:'touch',outcome:risk===null?'no-stop':target===null?'no-target':'waiting',entry,stop,target,rrTarget,obstacle,obstacleBeforeTarget:obstacle!==null&&rrTarget!==null&&d*(obstacle-rrTarget)<0,risk,rewardR:risk!==null&&target!==null?d*(target-entry)/risk:null,cost,netR:null,stopReason:reason,entryIndex:null,stopOptions:opts};
+  z.preview={mode:'touch',outcome:risk===null?'no-stop':target===null?'no-target':'waiting',entry,stop,target,rrTarget,obstacle,obstacleBeforeTarget:obstacle!==null&&rrTarget!==null&&d*(obstacle-rrTarget)<0,risk,rewardR:risk!==null&&target!==null?d*(target-entry)/risk:null,cost,netR:null,stopReason:reason,entryIndex:null,resolutionIndex:null,stopOptions:opts};
  }
  for(const z of zones){if(!z.mss||!z.atr||z.atr<=0)continue;const b=bars[z.created],d=z.direction,up=b.close+z.atr,down=b.close-z.atr;z.shiftOutcome='open';for(let j=z.created+1;j<=Math.min(last,z.created+p.horizon);j++){const c=bars[j];if(c.time-bars[j-1].time!==span){z.shiftOutcome='gap';z.shiftEnd=j;break;}const u=c.high>=up,l=c.low<=down;if(u&&l){z.shiftOutcome='ambiguous';z.shiftEnd=j;break;}if(u||l){z.shiftOutcome=(u&&d===1||l&&d===-1)?'with':'against';z.shiftEnd=j;break;}}}
  return {zones,first,last};
