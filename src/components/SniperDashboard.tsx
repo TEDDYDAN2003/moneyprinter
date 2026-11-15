@@ -136,7 +136,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
               {p ? (
                 <div className="flex items-center gap-1">
                   <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
-                    {p.setupType === 'EXPANSION_RUNNER' ? '🚀 RUNNER' : p.setupType === 'OB_RETEST' ? 'OB RETEST' : 'SCALP'}
+                    {p.setupType === 'EXPANSION_RUNNER' ? '🚀 RUNNER' : 'SCALP'}
                   </span>
                   <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${p.direction === 1 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
                     {p.filledIndex !== null ? "FILLED" : "LIMIT"}
