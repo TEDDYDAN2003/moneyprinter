@@ -20,7 +20,8 @@ import {
   BarChart3,
   BookmarkPlus,
   ArrowRight,
-  MousePointerClick
+  MousePointerClick,
+  Zap
 } from "lucide-react";
 import { 
   initSniperSimulation, 
@@ -38,7 +39,8 @@ import {
   type SniperPlan,
   type LotSizeMode,
   type SniperStrategyMode,
-  type SniperSessionFilter
+  type SniperSessionFilter,
+  type SniperExecutionType
 } from "@/lib/sniperReplay";
 import { SniperHistoryModal } from "./SniperHistoryModal";
 
@@ -474,21 +476,38 @@ export function SniperReplayPanel({
                 </span>
               </div>
 
-              {/* Session Filter */}
-              <div>
-                <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
-                  <Clock size={11} className="text-cyan-400" />
-                  Session Filter Mode
-                </label>
-                <select
-                  value={settings.sessionFilter}
-                  onChange={e => setSettings({ ...settings, sessionFilter: e.target.value as SniperSessionFilter })}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
-                >
-                  <option value="all_sessions">All Sessions (London, NY, Asia - No Moves Missed)</option>
-                  <option value="killzone_only">Strict Killzones Only (07:00-10:00 &amp; 12:00-17:00 UTC)</option>
-                  <option value="overlap_only">London/NY Overlap Only (12:00-15:00 UTC · Highest Edge)</option>
-                </select>
+              {/* Session Filter & Execution Mode */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                    <Clock size={11} className="text-cyan-400" />
+                    Session Filter
+                  </label>
+                  <select
+                    value={settings.sessionFilter}
+                    onChange={e => setSettings({ ...settings, sessionFilter: e.target.value as SniperSessionFilter })}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white"
+                  >
+                    <option value="all_sessions">All Sessions (24/7)</option>
+                    <option value="killzone_only">Strict Killzones</option>
+                    <option value="overlap_only">Overlap Only</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                    <Zap size={11} className="text-amber-400" />
+                    Execution Type
+                  </label>
+                  <select
+                    value={settings.executionType}
+                    onChange={e => setSettings({ ...settings, executionType: e.target.value as SniperExecutionType })}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white font-semibold"
+                  >
+                    <option value="market">⚡ Market (Instant Fill)</option>
+                    <option value="limit">🎯 Limit (Retest Touch)</option>
+                  </select>
+                </div>
               </div>
 
               {/* Deposit & Sizing Model */}
@@ -684,11 +703,11 @@ export function SniperReplayPanel({
                 {/* Rule 1: Killzone */}
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1 text-slate-400">
-                    <Clock size={12} className={radar?.session.inKillzone ? "text-emerald-400" : "text-slate-500"} />
-                    Rule 1: Killzone
+                    <Clock size={12} className={radar?.session.inKillzone ? "text-emerald-400" : (settings.sessionFilter === 'all_sessions' ? "text-cyan-400" : "text-slate-500")} />
+                    Rule 1: Session Gate
                   </span>
-                  <span className={`font-semibold ${radar?.session.inKillzone ? "text-emerald-400" : "text-slate-500"}`}>
-                    {radar?.session.name || "Off-Hours"}
+                  <span className={`font-semibold ${radar?.session.inKillzone ? "text-emerald-400" : (settings.sessionFilter === 'all_sessions' ? "text-cyan-300" : "text-slate-500")}`}>
+                    {radar?.session.name || "Off-Hours"} {settings.sessionFilter === 'all_sessions' && !radar?.session.inKillzone ? "(24/7 Mode)" : ""}
                   </span>
                 </div>
 

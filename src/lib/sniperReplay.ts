@@ -35,9 +35,10 @@ export interface SniperBar {
 export type LotSizeMode = 'risk_pct' | 'fixed_lots';
 export type ContractType = 'micro_contract' | 'standard_contract';
 export type SniperSessionFilter = 'all_sessions' | 'killzone_only' | 'overlap_only';
+export type SniperExecutionType = 'market' | 'limit';
 
 export type SniperStrategyMode = 
-  | 'institutional_triad'     // All Confluences: Killzone + 200 EMA + FVG + VWMA Momentum
+  | 'institutional_triad'     // All Confluences: Killzone + 200 EMA + FVG + VWMA Momentum + Liquidity Sweeps
   | 'vwma_crossover'          // VWMA × EMA Zero-Lag Crossover + Trend
   | 'fvg_displacement'        // Pure ICT FVG Imbalance Retest + Killzone
   | 'rapid_internal_scalp';   // High-Probability Internal Reaction Scalp
@@ -48,6 +49,7 @@ export interface SniperSettings {
   contractType: ContractType;  // 'micro_contract' (min 0.001 lot) or 'standard_contract' (min 0.01 lot)
   strategyProfile: SniperStrategyMode; // Strategy combination to execute
   sessionFilter: SniperSessionFilter;  // Session filter: all sessions or strict killzones
+  executionType: SniperExecutionType;  // 'market' (immediate execution on candle confirmation) or 'limit'
   focusSmallWins: boolean;     // Strict small-account rule: 1.0R - 1.25R guaranteed scalps, no huge risky swings
   riskPct: number;             // Risk % per trade if dynamic, e.g. 1.0% (max 2.0% hard cap)
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.01, 0.10, or 1.00
@@ -60,11 +62,12 @@ export interface SniperSettings {
 }
 
 export const sniperDefaults: SniperSettings = {
-  initialBalance: 1000,
+  initialBalance: 100,
   lotSizeMode: 'risk_pct',
   contractType: 'micro_contract',
   strategyProfile: 'institutional_triad',
-  sessionFilter: 'killzone_only',
+  sessionFilter: 'all_sessions', // Default to all_sessions so 14 hours of overnight action are not locked out
+  executionType: 'market',       // Default to market execution on confirmed candle so no moves are missed
   focusSmallWins: true,
   riskPct: 1.0,
   fixedLots: 0.10,
@@ -212,32 +215,33 @@ function getImmediateImpulseSL(
   direction: 1 | -1, 
   atr: number, 
   bufferAtr: number = 0.15,
-  maxStopDollars: number = 15.0
+  maxStopDollars: number = 15.0,
+  fvgZone?: { top: number; bottom: number }
 ): { stopPrice: number; refCandleInfo: string; isSafe: boolean } {
-  // Institutional structural invalidation: look back 3-4 bars to identify swing pivot / order block
-  const lookback = Math.min(4, idx);
-  let bestRefPrice = direction === -1 ? -Infinity : Infinity;
+  const bar = bars[idx];
+  const prevBar = idx > 0 ? bars[idx - 1] : bar;
+  let bestRefPrice = 0;
 
-  for (let k = idx; k >= idx - lookback; k--) {
-    const b = bars[k];
-    if (direction === -1) {
-      if (b.high > bestRefPrice) bestRefPrice = b.high;
-    } else {
-      if (b.low < bestRefPrice) bestRefPrice = b.low;
-    }
+  if (direction === 1) {
+    // For Long: anchor below the FVG zone bottom or reaction candle wick (whichever is tighter structural invalidation)
+    const wickLow = Math.min(bar.low, prevBar.low);
+    bestRefPrice = fvgZone ? Math.max(fvgZone.bottom, wickLow) : wickLow;
+  } else {
+    // For Short: anchor above the FVG zone top or reaction candle wick
+    const wickHigh = Math.max(bar.high, prevBar.high);
+    bestRefPrice = fvgZone ? Math.min(fvgZone.top, wickHigh) : wickHigh;
   }
 
-  const currentClose = bars[idx].close;
+  const currentClose = bar.close;
   let stopPrice = 0;
 
   if (direction === -1) {
-    stopPrice = bestRefPrice + Math.max(0.25, bufferAtr * atr);
+    stopPrice = bestRefPrice + Math.max(0.20, bufferAtr * atr);
   } else {
-    stopPrice = bestRefPrice - Math.max(0.25, bufferAtr * atr);
+    stopPrice = bestRefPrice - Math.max(0.20, bufferAtr * atr);
   }
 
   const dist = Math.abs(currentClose - stopPrice);
-  // Safe zone filter: must have meaningful buffer (>= 0.15 ATR) and not exceed max volatility ceiling
   const isSafe = dist >= 0.15 * atr && dist <= maxStopDollars;
 
   const refCandleInfo = `Structural ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
@@ -540,13 +544,37 @@ export function proposeSniperTrade(
   const profile = settings.strategyProfile || 'institutional_triad';
 
   if (profile === 'institutional_triad') {
-    // 🎯 Institutional Triad: 200 EMA Trend Alignment + FVG Mitigation + Volume Momentum
-    if (isBullTrend && vwmaDivergence >= -0.01 * atr && fvgData.retestingBull) {
+    // 🎯 Institutional Triad: Multi-Confluence Smart Money Structure
+    // 1. FVG Mitigation Retest
+    // 2. Liquidity Sweep Reclaim (Turtle Soup / Judas Swing)
+    // 3. 50 EMA Dynamic Trend Bounce
+    const lookbackSweep = Math.min(15, idx);
+    const recentLows = bars.slice(idx - lookbackSweep, idx).map(b => b.low);
+    const recentHighs = bars.slice(idx - lookbackSweep, idx).map(b => b.high);
+    const lowestPrior = Math.min(...recentLows.slice(0, -1));
+    const highestPrior = Math.max(...recentHighs.slice(0, -1));
+
+    const isBullSweep = bar.low < lowestPrior && bar.close > lowestPrior && (bar.close - bar.low) > (bar.high - bar.close);
+    const isBearSweep = bar.high > highestPrior && bar.close < highestPrior && (bar.high - bar.close) > (bar.close - bar.low);
+
+    if (fvgData.retestingBull && (isBullTrend || isBullSweep || bar.close > ema50)) {
       direction = 1;
-      triggerReason = `Triad: Bullish FVG Retest @ $${fvgData.bullZone?.bottom.toFixed(2)} + Macro Bull (>200 EMA)`;
-    } else if (isBearTrend && vwmaDivergence <= 0.01 * atr && fvgData.retestingBear) {
+      triggerReason = `Triad: Bullish FVG Mitigation @ $${fvgData.bullZone?.bottom.toFixed(2)}`;
+    } else if (fvgData.retestingBear && (isBearTrend || isBearSweep || bar.close < ema50)) {
       direction = -1;
-      triggerReason = `Triad: Bearish FVG Retest @ $${fvgData.bearZone?.top.toFixed(2)} + Macro Bear (<200 EMA)`;
+      triggerReason = `Triad: Bearish FVG Mitigation @ $${fvgData.bearZone?.top.toFixed(2)}`;
+    } else if (isBullSweep) {
+      direction = 1;
+      triggerReason = `Triad: Liquidity Sweep (SSL Reclaimed @ $${lowestPrior.toFixed(2)})`;
+    } else if (isBearSweep) {
+      direction = -1;
+      triggerReason = `Triad: Liquidity Sweep (BSL Reclaimed @ $${highestPrior.toFixed(2)})`;
+    } else if (isBullTrend && vwmaDivergence > 0.005 * atr && bar.low <= ema50 && bar.close > ema50) {
+      direction = 1;
+      triggerReason = `Triad: 50 EMA Dynamic Trend Bounce (>200 EMA)`;
+    } else if (isBearTrend && vwmaDivergence < -0.005 * atr && bar.high >= ema50 && bar.close < ema50) {
+      direction = -1;
+      triggerReason = `Triad: 50 EMA Dynamic Trend Rejection (<200 EMA)`;
     } else {
       return null;
     }
@@ -573,7 +601,7 @@ export function proposeSniperTrade(
       return null;
     }
   } else {
-    // 🏹 Rapid Internal Scalp: Frequent 1.1R - 1.4R internal reaction scalps
+    // 🏹 Rapid Internal Scalp: Frequent 1.0R - 1.25R internal reaction scalps
     if (isBullTrend && vwmaDivergence > 0.01 * atr) {
       direction = 1;
       triggerReason = `Internal Reaction Quick Scalp (>200 EMA)`;
@@ -608,7 +636,8 @@ export function proposeSniperTrade(
     direction, 
     atr, 
     settings.stopBufferAtr,
-    maxStopDollars
+    maxStopDollars,
+    direction === 1 ? fvgData.bullZone : fvgData.bearZone
   );
 
   // Reject unclear, wide trades that could harm small accounts!
@@ -656,14 +685,9 @@ export function proposeSniperTrade(
   const riskDollars = Number((lots * contractMultiplier * stopDistance).toFixed(2));
   const riskPctOfEquity = Number(((riskDollars / Math.max(1, state.balance)) * 100).toFixed(2));
 
-  // Hard Circuit Breaker: reject if risk exceeds 2x target risk %
-  // For $100 account with 1% risk, this means reject if > 2% ($2.00)
-  if (riskPctOfEquity > targetRiskPct * 2.0) {
-    return null;
-  }
-
-  // Final safety: if riskDollars exceeds maxAllowedRiskDollars by any rounding, clamp lots down
-  if (riskDollars > maxAllowedRiskDollars * 1.05) {
+  // Small Account Circuit Breaker:
+  // Reject only if risk exceeds 2.5% of total balance (gives tolerance for 0.001 micro-lot rounding)
+  if (riskPctOfEquity > Math.max(2.5, targetRiskPct * 2.0)) {
     return null;
   }
 
@@ -716,10 +740,7 @@ export function stepSniperSimulation(
     const contractMultiplier = 100;
 
     if (activePlan.filledIndex === null) {
-      // Pending Limit Order
-      const touched = activePlan.direction === 1
-        ? bar.low <= activePlan.entry
-        : bar.high >= activePlan.entry;
+      const isMarketExec = settings.executionType !== 'limit';
 
       const gapPast = activePlan.direction === 1
         ? bar.open < activePlan.stop
@@ -728,16 +749,29 @@ export function stepSniperSimulation(
       if (gapPast) {
         status = `Order cancelled: market gapped past stop at $${bar.open.toFixed(2)}.`;
         activePlan = null;
-      } else if (touched) {
+      } else if (isMarketExec) {
+        // Immediate Market fill on confirmed signal bar
         activePlan.filledIndex = nextIdx;
-        activePlan.filledPrice = activePlan.entry;
+        activePlan.filledPrice = bar.open;
         todayTrades++;
-        status = `SNIPER ${activePlan.direction === 1 ? 'BUY' : 'SELL'} FILLED @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [Risk: $${activePlan.riskDollars} / ${activePlan.riskPctOfEquity}%]`;
-      } else if (nextIdx - activePlan.signalIndex >= settings.expiryBars) {
-        status = 'Pending sniper order expired without fill.';
-        activePlan = null;
+        status = `SNIPER ${activePlan.direction === 1 ? 'BUY' : 'SELL'} FILLED @ $${activePlan.filledPrice.toFixed(2)} (${activePlan.lots} lots) [Risk: $${activePlan.riskDollars} / ${activePlan.riskPctOfEquity}%]`;
       } else {
-        status = `Awaiting fill for ${activePlan.direction === 1 ? 'BUY' : 'SELL'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots)`;
+        // Conservative Limit Order (awaits touch)
+        const touched = activePlan.direction === 1
+          ? bar.low <= activePlan.entry
+          : bar.high >= activePlan.entry;
+
+        if (touched) {
+          activePlan.filledIndex = nextIdx;
+          activePlan.filledPrice = activePlan.entry;
+          todayTrades++;
+          status = `SNIPER ${activePlan.direction === 1 ? 'BUY' : 'SELL'} FILLED @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [Risk: $${activePlan.riskDollars} / ${activePlan.riskPctOfEquity}%]`;
+        } else if (nextIdx - activePlan.signalIndex >= settings.expiryBars) {
+          status = 'Pending sniper order expired without fill.';
+          activePlan = null;
+        } else {
+          status = `Awaiting fill for ${activePlan.direction === 1 ? 'BUY' : 'SELL'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots)`;
+        }
       }
     } else {
       // Open Position
