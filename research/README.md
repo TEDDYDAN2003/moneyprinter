@@ -113,3 +113,5 @@ Triad now defaults to the MA-reaction entry trigger; FVG retest is logged but ne
 ### Offline interpretable ML experiment (no No-Wick)
 
 The separate `research/ml/` pipeline studies 15-minute OANDA tick-VWMA/EMA candidates and explicit higher-timeframe, sweep, FVG and candle proxies. It does not use No-Wick, place orders, or run a model on the website. Its first frozen 2024 fit / 2025 development / January–June 2026 evaluation did not qualify a model; see `reports/ml-2024-2026-report.md` for results, substantial gap exclusions and the distinction between the proxies and the Moneyprinter chart strategies. The 2026 evaluation period has been observed and cannot serve as a fresh final holdout after more tuning. Setup and tests: `research/ml/README.md`.
+
+For the 2024–2025 exact-chart VWMA confluence follow-up, including candle and zone features and the supervised research safeguards, see `reports/vwma-confluence-2024-2025.md`. The offline experiments did not qualify a model; the chart indicator has not been changed or deployed as an automated strategy.
