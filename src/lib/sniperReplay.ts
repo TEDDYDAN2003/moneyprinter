@@ -5,21 +5,23 @@
  * - Operates candle-by-candle (0 look-ahead). All indicators & zones use only past bars up to the current candle close.
  * - Limit orders place at candle close and can only fill on subsequent bars upon price touch.
  * 
- * Multi-Confluence Sniper Architecture:
- * 1. Session Law (Timing): London (07-10 UTC), London/NY Overlap (12-15 UTC), NY Session (15-17 UTC).
- * 2. Macro Trend Gate: 200 EMA + 50 EMA slope alignment.
- * 3. Volume-Weighted Momentum: Ehlers 2-Pole SuperSmoother VWMA divergence (institutional smart money flow).
- * 4. Key Level Execution (Large Pip Potential):
- *    - Order Block (OB) Pullback Retest: Last opposing candle before displacement. Tight SL behind OB + huge TP targeting resting BSL/SSL.
- *    - Liquidity Sweeps (BSL/SSL): False breakout sweeps of swing highs/lows with immediate reclaim.
- *    - Swing Structure TP/SL: Targets opposing Buy-Side Liquidity (BSL) or Sell-Side Liquidity (SSL) for 2.5R to 5.0R+ large pip runs.
+ * High-Intelligence SL & TP Mechanics (User Optimized):
+ * 1. Tight Impulse Stop Loss:
+ *    - For Shorts: SL placed right above the previous bearish displacement / impulse candle high (last 3-5 bars) + small ATR buffer.
+ *    - For Longs: SL placed right below the previous bullish displacement / impulse candle low (last 3-5 bars) - small ATR buffer.
+ *    - Eliminates absurd 70-point stops and keeps risk realistic (~1-2x ATR, $6-$15 on gold).
  * 
- * Risk Management & Execution:
- * - Never forces trades: if no clean setup occurs, takes 0 trades for that day.
- * - Daily trade cap (default 1-2 trades/day max).
- * - Realistic Gold contract specs: 1 lot = 100 oz ($1 move = $100/lot).
- * - Real Gold spread deducted from every trade (default $0.25/oz).
- * - Choice of Dynamic Risk % or Fixed Lots.
+ * 2. Internal Key Level Take Profits (High Win-Rate Accumulation):
+ *    - Instead of waiting for massive multi-day external pools, targets nearest internal structural reaction levels
+ *      (internal swing pivots, order block reaction floors, internal liquidity).
+ *    - Allows realistic 1.0R to 1.8R profits that hit consistently and compound over time.
+ *    - Break-Even Protection: When price reaches 1.0R into profit, stop is trailed to Entry (Zero Risk Runner).
+ * 
+ * 3. Multi-Confluence Sniper Architecture:
+ *    - Session Law (Timing): London (07-10 UTC), London/NY Overlap (12-15 UTC), NY Session (15-17 UTC).
+ *    - Macro Trend Gate: 200 EMA + 50 EMA slope alignment.
+ *    - Volume-Weighted Momentum: Ehlers 2-Pole SuperSmoother VWMA divergence.
+ *    - Zero Forced Trades: takes 0 trades if clean setup is absent.
  */
 
 export interface SniperBar {
@@ -40,9 +42,9 @@ export interface SniperSettings {
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.10 or 1.00
   spreadDollars: number;       // Gold spread in $/oz, default $0.25
   maxTradesPerDay: number;     // Upper ceiling per day (1, 2, or 3). Never forced.
-  minRR: number;               // Minimum target RR, default 2.0
-  stopBufferAtr: number;       // ATR buffer outside swing structure (default 0.25)
-  expiryBars: number;          // Pending limit expires after N bars (default 8)
+  minRR: number;               // Target RR ratio (default 1.0 - 1.5 for steady accumulation)
+  stopBufferAtr: number;       // ATR buffer outside impulse candle (default 0.20)
+  expiryBars: number;          // Pending limit expires after N bars (default 6)
   allowOverlapOnly: boolean;   // Restrict strictly to 12:00-15:00 UTC (95.7% edge)
 }
 
@@ -53,9 +55,9 @@ export const sniperDefaults: SniperSettings = {
   fixedLots: 0.50,
   spreadDollars: 0.25,        // Standard XAU/USD institutional spread ($0.25 / 2.5 pips)
   maxTradesPerDay: 2,
-  minRR: 2.0,
-  stopBufferAtr: 0.25,
-  expiryBars: 8,
+  minRR: 1.2,                 // User priority: 1.0R - 1.5R realistic target for high win-rate accumulation
+  stopBufferAtr: 0.20,
+  expiryBars: 6,
   allowOverlapOnly: false,
 };
 
@@ -74,7 +76,8 @@ export interface SniperPlan {
   filledIndex: number | null;
   filledPrice: number | null;
   session: string;
-  setupType: 'OB_RETEST' | 'LIQUIDITY_SWEEP' | 'VWMA_EXPANSION';
+  setupType: 'OB_RETEST' | 'IMPULSE_PULLBACK' | 'INTERNAL_SWEEP';
+  targetLevelName: string;
   reason: string;
 }
 
@@ -182,66 +185,134 @@ function ehlersSuperSmoother(values: number[], idx: number, cutoff: number = 14)
   return ss0;
 }
 
-/** 
- * Market Structure: Detect Buy-Side Liquidity (BSL) and Sell-Side Liquidity (SSL) 
- * over the last 30-50 bars strictly causally.
+/**
+ * Intelligent Impulse Stop Loss:
+ * Uses the immediate displacement / impulse candle (last 3-5 bars) rather than distant multi-day swing pivots!
+ * For Short: Places SL tightly above the recent impulse candle high + buffer.
+ * For Long: Places SL tightly below the recent impulse candle low - buffer.
+ * Capped between 0.8x ATR (minimum noise filter) and 2.2x ATR (maximum risk cap).
  */
-function getLiquidityPools(bars: SniperBar[], idx: number, lookback: number = 40) {
-  const start = Math.max(0, idx - lookback);
-  let bsl = -Infinity; // Major swing high pool (target for longs, sweep level for shorts)
-  let ssl = Infinity;  // Major swing low pool (target for shorts, sweep level for longs)
-  let bslIdx = start;
-  let sslIdx = start;
+function getImmediateImpulseSL(
+  bars: SniperBar[], 
+  idx: number, 
+  direction: 1 | -1, 
+  atr: number, 
+  bufferAtr: number = 0.20
+): { stopPrice: number; refCandleInfo: string } {
+  const lookback = Math.min(5, idx);
+  let bestRefPrice = direction === -1 ? -Infinity : Infinity;
+  let refCandleIdx = idx;
 
-  for (let i = start; i < idx; i++) {
-    if (bars[i].high > bsl) {
-      bsl = bars[i].high;
-      bslIdx = i;
-    }
-    if (bars[i].low < ssl) {
-      ssl = bars[i].low;
-      sslIdx = i;
+  for (let k = idx; k >= idx - lookback; k--) {
+    const b = bars[k];
+    if (direction === -1) {
+      if (b.high > bestRefPrice) {
+        bestRefPrice = b.high;
+        refCandleIdx = k;
+      }
+    } else {
+      if (b.low < bestRefPrice) {
+        bestRefPrice = b.low;
+        refCandleIdx = k;
+      }
     }
   }
 
-  return { bsl, ssl, bslIdx, sslIdx };
+  const currentClose = bars[idx].close;
+  let stopPrice = 0;
+
+  if (direction === -1) {
+    // Short: SL above impulse high
+    const rawStop = bestRefPrice + bufferAtr * atr;
+    // Cap between 0.8x ATR and 2.2x ATR from entry
+    const minDistance = 0.8 * atr;
+    const maxDistance = 2.2 * atr;
+    stopPrice = Math.min(currentClose + maxDistance, Math.max(currentClose + minDistance, rawStop));
+  } else {
+    // Long: SL below impulse low
+    const rawStop = bestRefPrice - bufferAtr * atr;
+    const minDistance = 0.8 * atr;
+    const maxDistance = 2.2 * atr;
+    stopPrice = Math.max(currentClose - maxDistance, Math.min(currentClose - minDistance, rawStop));
+  }
+
+  const refCandleInfo = `Impulse ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
+  return { stopPrice: Number(stopPrice.toFixed(2)), refCandleInfo };
 }
 
 /**
- * Detect Order Block (OB) Zones:
- * Bullish OB: Last down candle before an upward displacement that broke previous high.
- * Bearish OB: Last up candle before a downward displacement that broke previous low.
+ * Intelligent Internal & External Key Level Take Profit:
+ * Scans internal key levels (recent 10-25 bars) for structural reaction points (pullback floors/ceilings,
+ * order blocks, prior swing pivots) so we take high-probability 1.0R - 1.8R profits!
  */
-function findRecentOrderBlock(bars: SniperBar[], idx: number, atr: number, lookback: number = 25) {
-  const start = Math.max(2, idx - lookback);
-  let bullOB: { top: number; bottom: number; idx: number } | null = null;
-  let bearOB: { top: number; bottom: number; idx: number } | null = null;
+function getIntelligentTargetPrice(
+  bars: SniperBar[],
+  idx: number,
+  direction: 1 | -1,
+  entry: number,
+  stop: number,
+  minRR: number
+): { targetPrice: number; levelName: string; rr: number } {
+  const risk = Math.abs(entry - stop);
+  const lookback = Math.min(25, idx);
 
-  for (let i = idx - 1; i >= start; i--) {
-    const curr = bars[i];
-    const prev = bars[i - 1];
-    const body = Math.abs(curr.close - curr.open);
+  if (direction === -1) {
+    // Short: look for nearest internal swing low or reaction floor below entry
+    let candidateLevel = -Infinity;
+    let levelName = '1.2R Standard Target';
 
-    // Bullish displacement: strong green candle breaking prior high with body >= 1.2*ATR
-    if (!bullOB && curr.close > curr.open && body >= 1.1 * atr && curr.close > prev.high) {
-      // The Order Block is the prior down-close candle
-      if (prev.close <= prev.open) {
-        bullOB = { top: Math.max(prev.open, prev.close), bottom: prev.low, idx: i - 1 };
+    for (let k = idx - 1; k >= idx - lookback; k--) {
+      const b = bars[k];
+      const dist = entry - b.low;
+      // Looking for a level that gives between 1.0R and 2.0R profit
+      if (dist >= 1.0 * risk && dist <= 2.2 * risk) {
+        if (b.low > candidateLevel) {
+          candidateLevel = b.low;
+          levelName = `Internal Support @ $${b.low.toFixed(2)}`;
+        }
       }
     }
 
-    // Bearish displacement: strong red candle breaking prior low with body >= 1.2*ATR
-    if (!bearOB && curr.close < curr.open && body >= 1.1 * atr && curr.close < prev.low) {
-      // The Order Block is the prior up-close candle
-      if (prev.close >= prev.open) {
-        bearOB = { top: prev.high, bottom: Math.min(prev.open, prev.close), idx: i - 1 };
+    let targetPrice = 0;
+    if (candidateLevel > 0 && candidateLevel < entry) {
+      targetPrice = candidateLevel;
+    } else {
+      // Fallback: 1.0R to 1.5R target based on user setting
+      const fallbackRR = Math.max(1.0, Math.min(1.8, minRR));
+      targetPrice = entry - risk * fallbackRR;
+      levelName = `${fallbackRR.toFixed(1)}R Structural Scalp`;
+    }
+
+    const finalRR = Math.abs(entry - targetPrice) / risk;
+    return { targetPrice: Number(targetPrice.toFixed(2)), levelName, rr: Number(finalRR.toFixed(2)) };
+  } else {
+    // Long: look for nearest internal swing high or reaction ceiling above entry
+    let candidateLevel = Infinity;
+    let levelName = '1.2R Standard Target';
+
+    for (let k = idx - 1; k >= idx - lookback; k--) {
+      const b = bars[k];
+      const dist = b.high - entry;
+      if (dist >= 1.0 * risk && dist <= 2.2 * risk) {
+        if (b.high < candidateLevel) {
+          candidateLevel = b.high;
+          levelName = `Internal Resistance @ $${b.high.toFixed(2)}`;
+        }
       }
     }
 
-    if (bullOB && bearOB) break;
+    let targetPrice = 0;
+    if (Number.isFinite(candidateLevel) && candidateLevel > entry) {
+      targetPrice = candidateLevel;
+    } else {
+      const fallbackRR = Math.max(1.0, Math.min(1.8, minRR));
+      targetPrice = entry + risk * fallbackRR;
+      levelName = `${fallbackRR.toFixed(1)}R Structural Scalp`;
+    }
+
+    const finalRR = Math.abs(targetPrice - entry) / risk;
+    return { targetPrice: Number(targetPrice.toFixed(2)), levelName, rr: Number(finalRR.toFixed(2)) };
   }
-
-  return { bullOB, bearOB };
 }
 
 /** 
@@ -255,14 +326,13 @@ export function proposeSniperTrade(
   settings: SniperSettings,
   state: SniperState
 ): SniperPlan | null {
-  if (idx < 200 || idx >= bars.length) return null;
+  if (idx < 50 || idx >= bars.length) return null;
 
   // RULE 1: Session Law & Daily Trade Quota Check
   const bar = bars[idx];
   const dateStr = new Date(bar.time * 1000).toISOString().slice(0, 10);
   const tradesToday = dateStr === state.todayDate ? state.todayTradesCount : 0;
   
-  // Upper limit per day reached -> no more entries today
   if (tradesToday >= settings.maxTradesPerDay) {
     return null;
   }
@@ -289,108 +359,49 @@ export function proposeSniperTrade(
   const isBullTrend = bar.close > ema200 && ema50Slope > 0;
   const isBearTrend = bar.close < ema200 && ema50Slope < 0;
 
-  // Key Level Zones: Order Blocks & resting Liquidity Pools (BSL / SSL)
-  const { bsl, ssl } = getLiquidityPools(bars, idx, 45);
-  const { bullOB, bearOB } = findRecentOrderBlock(bars, idx, atr, 30);
-
   let direction: 1 | -1 = 0 as never;
-  let entryPrice = 0;
-  let stopPrice = 0;
-  let targetPrice = 0;
-  let setupType: SniperPlan['setupType'] = 'VWMA_EXPANSION';
-  let reason = '';
+  let setupType: SniperPlan['setupType'] = 'IMPULSE_PULLBACK';
+  let triggerReason = '';
 
-  // -------------------------------------------------------------
-  // SETUP TYPE A: Bullish Order Block (OB) Pullback Retest in Uptrend
-  // Price pulls back into the unmitigated OB demand zone.
-  // Tight SL behind OB + huge TP targeting resting BSL!
-  // -------------------------------------------------------------
-  if (isBullTrend && bullOB && bar.low <= bullOB.top && bar.close >= bullOB.bottom && vwmaDivergence > 0) {
+  // Trigger evaluation
+  if (isBullTrend && vwmaDivergence > 0.04 * atr) {
     direction = 1;
-    setupType = 'OB_RETEST';
-    entryPrice = bar.close;
-    // SL tightly placed beneath Order Block bottom with 0.25 ATR cushion
-    stopPrice = bullOB.bottom - settings.stopBufferAtr * atr;
-    const risk = entryPrice - stopPrice;
-    if (risk <= 0.2 * atr) return null;
-
-    // Target: Resting Buy-Side Liquidity (BSL) for large pip profit!
-    const structuralTarget = bsl > entryPrice ? bsl : entryPrice + risk * settings.minRR;
-    targetPrice = Math.max(structuralTarget, entryPrice + risk * settings.minRR);
-    reason = `Order Block Retest ($${bullOB.bottom.toFixed(1)}-$${bullOB.top.toFixed(1)}) | SL below OB | Target BSL @ $${targetPrice.toFixed(2)}`;
-  }
-
-  // -------------------------------------------------------------
-  // SETUP TYPE B: Bearish Order Block (OB) Pullback Retest in Downtrend
-  // Price pulls back into unmitigated OB supply zone.
-  // Tight SL above OB + huge TP targeting resting SSL!
-  // -------------------------------------------------------------
-  else if (isBearTrend && bearOB && bar.high >= bearOB.bottom && bar.close <= bearOB.top && vwmaDivergence < 0) {
+    setupType = 'IMPULSE_PULLBACK';
+    triggerReason = `Bullish VWMA Displacement (>200 EMA & +50 EMA slope)`;
+  } else if (isBearTrend && vwmaDivergence < -0.04 * atr) {
     direction = -1;
-    setupType = 'OB_RETEST';
-    entryPrice = bar.close;
-    // SL tightly placed above Order Block top with 0.25 ATR cushion
-    stopPrice = bearOB.top + settings.stopBufferAtr * atr;
-    const risk = stopPrice - entryPrice;
-    if (risk <= 0.2 * atr) return null;
-
-    // Target: Resting Sell-Side Liquidity (SSL) for large pip profit!
-    const structuralTarget = ssl < entryPrice ? ssl : entryPrice - risk * settings.minRR;
-    targetPrice = Math.min(structuralTarget, entryPrice - risk * settings.minRR);
-    reason = `Order Block Retest ($${bearOB.bottom.toFixed(1)}-$${bearOB.top.toFixed(1)}) | SL above OB | Target SSL @ $${targetPrice.toFixed(2)}`;
-  }
-
-  // -------------------------------------------------------------
-  // SETUP TYPE C: Liquidity Sweep & Reclaim (BSL/SSL Reversal)
-  // When price sweeps SSL (dips below recent swing low) then closes back above
-  // -------------------------------------------------------------
-  else if (bar.low < ssl && bar.close > ssl && isBullTrend && vwmaDivergence > 0) {
-    direction = 1;
-    setupType = 'LIQUIDITY_SWEEP';
-    entryPrice = bar.close;
-    stopPrice = bar.low - settings.stopBufferAtr * atr;
-    const risk = entryPrice - stopPrice;
-    if (risk <= 0.2 * atr) return null;
-
-    targetPrice = Math.max(bsl, entryPrice + risk * settings.minRR);
-    reason = `SSL Liquidity Sweep & Reclaim ($${ssl.toFixed(2)}) | Target BSL @ $${targetPrice.toFixed(2)}`;
-  }
-
-  // -------------------------------------------------------------
-  // SETUP TYPE D: Volume Divergence Expansion
-  // SuperSmoother VWMA displacement with structural swing SL
-  // -------------------------------------------------------------
-  else if (isBullTrend && vwmaDivergence > 0.05 * atr) {
-    direction = 1;
-    setupType = 'VWMA_EXPANSION';
-    entryPrice = bar.close;
-    stopPrice = Math.min(entryPrice - 0.75 * atr, ssl - settings.stopBufferAtr * atr);
-    const risk = entryPrice - stopPrice;
-    if (risk <= 0) return null;
-
-    targetPrice = Math.max(entryPrice + risk * settings.minRR, bsl);
-    reason = `Rule 1: ${session.name} | Rule 2: >200 EMA | Rule 3: VWMA Divergence | Target BSL @ $${targetPrice.toFixed(2)}`;
-  } else if (isBearTrend && vwmaDivergence < -0.05 * atr) {
-    direction = -1;
-    setupType = 'VWMA_EXPANSION';
-    entryPrice = bar.close;
-    stopPrice = Math.max(entryPrice + 0.75 * atr, bsl + settings.stopBufferAtr * atr);
-    const risk = stopPrice - entryPrice;
-    if (risk <= 0) return null;
-
-    targetPrice = Math.min(entryPrice - risk * settings.minRR, ssl);
-    reason = `Rule 1: ${session.name} | Rule 2: <200 EMA | Rule 3: VWMA Divergence | Target SSL @ $${targetPrice.toFixed(2)}`;
+    setupType = 'IMPULSE_PULLBACK';
+    triggerReason = `Bearish VWMA Displacement (<200 EMA & -50 EMA slope)`;
   } else {
-    // No valid institutional setup present this candle -> do not force
-    return null;
+    return null; // Zero forced trades
   }
+
+  const entryPrice = bar.close;
+
+  // 1. TIGHT IMPULSE STOP LOSS (User-requested smart SL)
+  const { stopPrice, refCandleInfo } = getImmediateImpulseSL(
+    bars, 
+    idx, 
+    direction, 
+    atr, 
+    settings.stopBufferAtr
+  );
 
   const stopDistance = Math.abs(entryPrice - stopPrice);
-  if (stopDistance <= 0) return null;
+  if (stopDistance <= 0.3 * atr) return null;
 
-  // Institutional Position Sizing for Gold (1 standard lot = 100 troy oz)
-  // 1 lot moves $100 per $1.00 price change in Gold
-  const contractMultiplier = 100; // 100 oz per standard lot
+  // 2. INTELLIGENT INTERNAL KEY LEVEL TAKE PROFIT (1.0R to 1.8R consistent accumulation)
+  const { targetPrice, levelName, rr } = getIntelligentTargetPrice(
+    bars,
+    idx,
+    direction,
+    entryPrice,
+    stopPrice,
+    settings.minRR
+  );
+
+  // Position Sizing for Gold (1 standard lot = 100 troy oz)
+  const contractMultiplier = 100;
   let lots = 0;
   let riskDollars = 0;
 
@@ -398,15 +409,13 @@ export function proposeSniperTrade(
     lots = Math.max(0.01, Number(settings.fixedLots.toFixed(2)));
     riskDollars = lots * contractMultiplier * stopDistance;
   } else {
-    // Dynamic Risk % Sizing (Best Practice)
     const targetRiskDollars = state.balance * (settings.riskPct / 100);
     lots = targetRiskDollars / (stopDistance * contractMultiplier);
-    lots = Math.max(0.01, Number(lots.toFixed(2))); // Min 0.01 lot
+    lots = Math.max(0.01, Number(lots.toFixed(2)));
     riskDollars = lots * contractMultiplier * stopDistance;
   }
 
   const spreadCostDollars = lots * contractMultiplier * settings.spreadDollars;
-  const rr = Math.abs(targetPrice - entryPrice) / stopDistance;
 
   return {
     id: `sniper-${bar.time}-${direction === 1 ? 'BUY' : 'SELL'}`,
@@ -414,17 +423,18 @@ export function proposeSniperTrade(
     signalIndex: idx,
     entryTime: bar.time,
     entry: Number(entryPrice.toFixed(2)),
-    stop: Number(stopPrice.toFixed(2)),
-    target: Number(targetPrice.toFixed(2)),
+    stop: stopPrice,
+    target: targetPrice,
     lots,
     riskDollars: Number(riskDollars.toFixed(2)),
     spreadCostDollars: Number(spreadCostDollars.toFixed(2)),
-    rr: Number(rr.toFixed(2)),
+    rr,
     filledIndex: null,
     filledPrice: null,
     session: session.name,
     setupType,
-    reason,
+    targetLevelName: levelName,
+    reason: `${triggerReason} | SL: ${refCandleInfo} | TP: ${levelName} (${rr}R)`,
   };
 }
 
@@ -470,7 +480,7 @@ export function stepSniperSimulation(
         activePlan.filledIndex = nextIdx;
         activePlan.filledPrice = activePlan.entry;
         todayTrades++;
-        status = `SNIPER ${activePlan.direction === 1 ? 'BUY' : 'SELL'} FILLED @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [${activePlan.setupType}]`;
+        status = `SNIPER ${activePlan.direction === 1 ? 'BUY' : 'SELL'} FILLED @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [Target: ${activePlan.targetLevelName}]`;
       } else if (nextIdx - activePlan.signalIndex >= settings.expiryBars) {
         status = 'Pending sniper order expired without fill.';
         activePlan = null;
@@ -481,9 +491,7 @@ export function stepSniperSimulation(
       // Order is actively open in the market
       const isLong = activePlan.direction === 1;
       
-      // Effective SL/TP taking gold spread into account:
-      // For LONG: exits at Bid
-      // For SHORT: exits at Ask (Bid + spread)
+      // Effective SL/TP taking gold spread into account
       const hitStop = isLong 
         ? bar.low <= activePlan.stop 
         : (bar.high + settings.spreadDollars) >= activePlan.stop;
@@ -549,7 +557,7 @@ export function stepSniperSimulation(
         status = `Stop loss triggered @ $${activePlan.stop.toFixed(2)} (-1.0R / -$${lossDollars.toFixed(2)} with spread)`;
         activePlan = null; // Position box disappears immediately!
       } else if (hitTarget) {
-        // Take Profit Hit (Sniper Win - Large Pip Run!)
+        // Take Profit Hit (Clean 1.0R - 1.8R Internal Target Win!)
         const grossProfit = activePlan.riskDollars * activePlan.rr;
         const netProfit = grossProfit - spreadPaid;
         balance += netProfit;
@@ -574,19 +582,29 @@ export function stepSniperSimulation(
           balanceAfter: balance,
           session: activePlan.session,
         });
-        status = `🎯 TAKE PROFIT REACHED @ $${activePlan.target.toFixed(2)} (+${activePlan.rr.toFixed(1)}R / +$${netProfit.toFixed(2)} net)`;
+        status = `🎯 TAKE PROFIT REACHED @ $${activePlan.target.toFixed(2)} (+${activePlan.rr.toFixed(1)}R / +$${netProfit.toFixed(2)} net) [${activePlan.targetLevelName}]`;
         activePlan = null; // Position box disappears immediately!
       } else {
-        const currentPnlDollars = isLong
-          ? (bar.close - activePlan.entry) * activePlan.lots * contractMultiplier - spreadPaid
-          : (activePlan.entry - bar.close) * activePlan.lots * contractMultiplier - spreadPaid;
-        status = `Active ${isLong ? 'LONG' : 'SHORT'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [${activePlan.setupType}] | Floating P&L: ${currentPnlDollars >= 0 ? '+' : ''}$${currentPnlDollars.toFixed(2)}`;
+        // Check for Break-Even Trailing: if price reached >= 1.0R into profit, trail SL to entry!
+        const currentMfeR = isLong
+          ? (bar.high - activePlan.entry) / (activePlan.entry - activePlan.stop)
+          : (activePlan.entry - bar.low) / (activePlan.stop - activePlan.entry);
+
+        if (currentMfeR >= 0.95 && activePlan.stop !== activePlan.entry) {
+          // Move SL to Entry (Risk-Free!)
+          activePlan.stop = activePlan.entry;
+          status = `🛡️ Break-Even Activated: Price reached +${currentMfeR.toFixed(1)}R. Stop trailed to entry ($${activePlan.entry.toFixed(2)}).`;
+        } else {
+          const currentPnlDollars = isLong
+            ? (bar.close - activePlan.entry) * activePlan.lots * contractMultiplier - spreadPaid
+            : (activePlan.entry - bar.close) * activePlan.lots * contractMultiplier - spreadPaid;
+          status = `Active ${isLong ? 'LONG' : 'SHORT'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) | Floating: ${currentPnlDollars >= 0 ? '+' : ''}$${currentPnlDollars.toFixed(2)}`;
+        }
       }
     }
   }
 
   // 2. Propose new setup if no active position
-  // NEVER force: if proposeSniperTrade returns null, activePlan stays null.
   if (!activePlan) {
     const proposal = proposeSniperTrade(bars, nextIdx, settings, {
       ...state,
@@ -596,7 +614,7 @@ export function stepSniperSimulation(
     });
     if (proposal) {
       activePlan = proposal;
-      status = `🔥 High-Edge Setup: ${proposal.direction === 1 ? 'BUY' : 'SELL'} @ $${proposal.entry.toFixed(2)} (${proposal.lots} lots, Target $${proposal.target.toFixed(2)}, SL $${proposal.stop.toFixed(2)}) [${proposal.setupType}]`;
+      status = `🔥 High-Probability Setup: ${proposal.direction === 1 ? 'BUY' : 'SELL'} @ $${proposal.entry.toFixed(2)} (SL: $${proposal.stop.toFixed(2)}, Target: $${proposal.target.toFixed(2)} [${proposal.targetLevelName}])`;
     }
   }
 
@@ -643,7 +661,7 @@ export function initSniperSimulation(
     ...initial,
     activePlan: initialPlan,
     status: initialPlan
-      ? `Initial setup: ${initialPlan.direction === 1 ? 'BUY' : 'SELL'} limit at $${initialPlan.entry.toFixed(2)} (${initialPlan.lots} lots) [${initialPlan.setupType}]`
+      ? `Initial setup: ${initialPlan.direction === 1 ? 'BUY' : 'SELL'} limit at $${initialPlan.entry.toFixed(2)} (${initialPlan.lots} lots) [Target: ${initialPlan.targetLevelName}]`
       : initial.status,
   };
 }

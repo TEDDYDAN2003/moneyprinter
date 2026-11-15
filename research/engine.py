@@ -451,40 +451,44 @@ def backtest(candles, results, minutes=5, rr=1.5, stop_atr=1.0, horizon=None, co
         entry = candles[i]['close']
         atr_val = r['atr']
         
-        # Stop Loss determination (Structural vs ATR)
+        # Stop Loss determination (Strict Sniper: Immediate Impulse Candle SL with Hard Cap)
         if stop_mode == 'structural':
             if d == 1:
-                fvg_low = min((z['bottom'] for z in r['zones'] if z['direction'] == 1), default=candles[i]['low'])
-                swing_low = min(c['low'] for c in candles[max(0, i - 6):i + 1])
-                sl = min(fvg_low, swing_low) - (0.15 * atr_val)
-                if (entry - sl) < 0.4 * atr_val:
-                    sl = entry - (0.8 * atr_val)
+                # Long: find the immediate impulse/displacement low in the last 4 bars
+                impulse_low = min(c['low'] for c in candles[max(0, i - 4):i + 1])
+                sl = impulse_low - (0.20 * atr_val)
+                # Strict Risk Cap: between 0.7x ATR (min noise) and 2.0x ATR (max risk protection)
+                sl = max(entry - (2.0 * atr_val), min(entry - (0.7 * atr_val), sl))
             else:
-                fvg_high = max((z['top'] for z in r['zones'] if z['direction'] == -1), default=candles[i]['high'])
-                swing_high = max(c['high'] for c in candles[max(0, i - 6):i + 1])
-                sl = max(fvg_high, swing_high) + (0.15 * atr_val)
-                if (sl - entry) < 0.4 * atr_val:
-                    sl = entry + (0.8 * atr_val)
+                # Short: find the immediate impulse/displacement high in the last 4 bars
+                impulse_high = max(c['high'] for c in candles[max(0, i - 4):i + 1])
+                sl = impulse_high + (0.20 * atr_val)
+                # Strict Risk Cap: between 0.7x ATR and 2.0x ATR
+                sl = min(entry + (2.0 * atr_val), max(entry + (0.7 * atr_val), sl))
         else:
-            sl = entry - d * (atr_val * stop_atr)
+            sl = entry - d * (atr_val * min(stop_atr, 1.8))
             
         risk = abs(entry - sl)
         if risk <= 1e-5:
             i += 1
             continue
             
-        # Take Profit determination (Structural BSL/SSL vs Fixed RR)
+        # Take Profit determination (Internal & Structural Key Levels for Consistent 1.0R - 1.8R Profit)
         if target_mode == 'structural':
             if d == 1:
-                lookback_highs = [candles[k]['high'] for k in range(max(0, i - 45), i) if candles[k]['high'] > entry + 0.5 * risk]
-                tp = min(lookback_highs) if lookback_highs else entry + risk * max(min_rr, 1.5)
+                # Find nearest internal key resistance / reaction high in last 25 bars
+                candidate_highs = [candles[k]['high'] for k in range(max(0, i - 25), i)
+                                   if (candles[k]['high'] - entry) >= 0.95 * risk and (candles[k]['high'] - entry) <= 2.2 * risk]
+                tp = min(candidate_highs) if candidate_highs else entry + risk * max(1.0, min(1.8, min_rr))
             else:
-                lookback_lows = [candles[k]['low'] for k in range(max(0, i - 45), i) if candles[k]['low'] < entry - 0.5 * risk]
-                tp = max(lookback_lows) if lookback_lows else entry - risk * max(min_rr, 1.5)
+                # Find nearest internal key support / reaction low in last 25 bars
+                candidate_lows = [candles[k]['low'] for k in range(max(0, i - 25), i)
+                                  if (entry - candles[k]['low']) >= 0.95 * risk and (entry - candles[k]['low']) <= 2.2 * risk]
+                tp = max(candidate_lows) if candidate_lows else entry - risk * max(1.0, min(1.8, min_rr))
                 
             effective_rr = abs(tp - entry) / risk
             
-            if effective_rr < min_rr:
+            if effective_rr < max(1.0, min(min_rr, 1.2)):
                 excluded[group]['rr_filtered'] += 1
                 i += 1
                 continue

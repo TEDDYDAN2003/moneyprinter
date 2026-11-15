@@ -14,8 +14,21 @@ export function propose(bar:ReplayBar,r:ReplayResult,index:number,s:ReplaySettin
  // Only intact, still-unfilled gaps; enter at the near edge on a subsequent touch.
  const zones=r.zones.filter(z=>z.direction===dir&&z.status==='fresh'&&z.created<=index&&z.created>=2&&(dir===1?bars[z.created-1].close>bars[z.created-1].open:bars[z.created-1].close<bars[z.created-1].open)&&(dir===1?bar.close>z.top:bar.close<z.bottom));
  const zone=zones.sort((a,b)=>Math.abs((dir===1?a.top:a.bottom)-bar.close)-Math.abs((dir===1?b.top:b.bottom)-bar.close))[0];if(!zone)return null;
- const entry=dir===1?zone.top:zone.bottom,stop=(dir===1?zone.bottom:zone.top)-dir*r.atr*s.stopAtr,risk=dir*(entry-stop);
- if(!Number.isFinite(risk)||risk<=0)return null;return {direction:dir,signal:index,zone:{...zone},entry,stop,target:entry+dir*risk*s.rr,risk,filled:null};
+ const entry=dir===1?zone.top:zone.bottom;
+ const lookback=Math.min(5,index);let impulseExtreme=dir===1?Infinity:-Infinity;
+ for(let k=index;k>=index-lookback;k--){if(dir===1&&bars[k].low<impulseExtreme)impulseExtreme=bars[k].low;if(dir===-1&&bars[k].high>impulseExtreme)impulseExtreme=bars[k].high;}
+ const rawStop=(dir===1?zone.bottom:zone.top)-dir*r.atr*s.stopAtr;
+ const stop=dir===1?Math.max(entry-2.0*r.atr,Math.min(entry-0.6*r.atr,Math.min(rawStop,impulseExtreme-0.15*r.atr))):Math.min(entry+2.0*r.atr,Math.max(entry+0.6*r.atr,Math.max(rawStop,impulseExtreme+0.15*r.atr)));
+ const risk=dir*(entry-stop);
+ if(!Number.isFinite(risk)||risk<=0)return null;
+ // Internal reaction key level scan for realistic 1.0R - 1.8R profit
+ let target=entry+dir*risk*s.rr;
+ for(let k=index-1;k>=Math.max(0,index-25);k--){
+  const b=bars[k];
+  if(dir===1&&b.high>entry&&(b.high-entry)>=0.95*risk&&(b.high-entry)<=2.0*risk){target=b.high;break;}
+  if(dir===-1&&b.low<entry&&(entry-b.low)>=0.95*risk&&(entry-b.low)<=2.0*risk){target=b.low;break;}
+ }
+ return {direction:dir,signal:index,zone:{...zone},entry,stop,target,risk,filled:null};
 }
 export function stepReplay(state:ReplayState,bars:ReplayBar[],results:ReplayResult[],minutes:number,s:ReplaySettings):ReplayState{
  const i=state.index+1;if(i>=bars.length)return state;
