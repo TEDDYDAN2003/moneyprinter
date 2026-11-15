@@ -340,7 +340,7 @@ export function proposeSniperTrade(
   settings: SniperSettings,
   state: SniperState
 ): SniperPlan | null {
-  if (idx < 50 || idx >= bars.length) return null;
+  if (idx < 14 || idx >= bars.length) return null;
 
   // RULE 1: Session Law & Daily Trade Quota Check
   const bar = bars[idx];

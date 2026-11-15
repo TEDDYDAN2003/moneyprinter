@@ -125,7 +125,7 @@ export function SniperReplayPanel({
 
   function start() {
     setPlaying(false);
-    const startIdx = Math.max(200, Math.min(selected, bars.length - 2));
+    const startIdx = Math.max(14, Math.min(selected, bars.length - 2));
     const init = initSniperSimulation(startIdx, bars, settings);
     setState(init);
   }
@@ -352,6 +352,8 @@ export function SniperReplayPanel({
                 <option value={2}>2×</option>
                 <option value={5}>5×</option>
                 <option value={10}>10×</option>
+                <option value={15}>15×</option>
+                <option value={20}>20×</option>
               </select>
             </div>
 
