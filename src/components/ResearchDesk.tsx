@@ -372,7 +372,7 @@ function PriceChart({
   // Visual trade setup price lines (Entry, TP, SL)
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || !showTradeOverlays || !activeTrade) return;
+    if (!series || !showTradeOverlays || !activeTrade || replaying) return;
     const isLong = activeTrade.direction === 1;
     const lines = [
       series.createPriceLine({
@@ -434,7 +434,7 @@ function PriceChart({
           series={seriesRef.current}
           node={ref.current}
           bars={data.candles}
-          activeTrade={showTradeOverlays ? activeTrade : null}
+          activeTrade={showTradeOverlays && !replaying ? activeTrade : null}
           plan={plan}
         />
       )}
@@ -1311,7 +1311,7 @@ export function ResearchDesk() {
                   onViewport={viewportChanged}
                   restoreRef={restoreRef}
                   plan={sniperOpen ? sniperPlan : replayPlan}
-                  replaying={replayCursor !== null || sniperCursor !== null}
+                  replaying={replayCursor !== null || sniperCursor !== null || sniperOpen || replayOpen}
                   follow={replayFollow}
                   onDetach={() => setReplayFollow(false)}
                   onZoneClick={zoneClick}

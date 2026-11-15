@@ -33,6 +33,7 @@ export interface SniperBar {
 }
 
 export type LotSizeMode = 'risk_pct' | 'fixed_lots';
+export type ContractType = 'micro_contract' | 'standard_contract';
 
 export type SniperStrategyMode = 
   | 'institutional_triad'     // All Confluences: Killzone + 200 EMA + FVG + VWMA Momentum
@@ -41,15 +42,17 @@ export type SniperStrategyMode =
   | 'rapid_internal_scalp';   // High-Probability Internal Reaction Scalp
 
 export interface SniperSettings {
-  initialBalance: number;      // Deposit / Account equity, e.g. $500, $1,000, $10,000
+  initialBalance: number;      // Deposit / Account equity, e.g. $100, $500, $1,000, $10,000
   lotSizeMode: LotSizeMode;    // 'risk_pct' (dynamic) or 'fixed_lots'
+  contractType: ContractType;  // 'micro_contract' (min 0.001 lot) or 'standard_contract' (min 0.01 lot)
   strategyProfile: SniperStrategyMode; // Strategy combination to execute
+  focusSmallWins: boolean;     // Strict small-account rule: 1.0R - 1.25R guaranteed scalps, no huge risky swings
   riskPct: number;             // Risk % per trade if dynamic, e.g. 1.0% (max 2.0% hard cap)
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.01, 0.10, or 1.00
   spreadDollars: number;       // Gold spread in $/oz, default $0.25
   maxTradesPerDay: number;     // Upper ceiling per day (1, 2, or 3). Never forced.
   minRR: number;               // Minimum target RR ratio (default 1.2 for quick accumulation)
-  stopBufferAtr: number;       // ATR buffer outside impulse candle (default 0.18)
+  stopBufferAtr: number;       // ATR buffer outside impulse candle (default 0.15)
   expiryBars: number;          // Pending limit expires after N bars (default 5)
   allowOverlapOnly: boolean;   // Restrict strictly to 12:00-15:00 UTC (95.7% edge)
 }
@@ -57,13 +60,15 @@ export interface SniperSettings {
 export const sniperDefaults: SniperSettings = {
   initialBalance: 10000,
   lotSizeMode: 'risk_pct',
+  contractType: 'micro_contract',
   strategyProfile: 'institutional_triad',
+  focusSmallWins: true,
   riskPct: 1.0,
   fixedLots: 0.10,
   spreadDollars: 0.25,        // Standard XAU/USD institutional spread ($0.25 / 2.5 pips)
   maxTradesPerDay: 2,
   minRR: 1.2,                 // Quick guaranteed accumulation target
-  stopBufferAtr: 0.18,
+  stopBufferAtr: 0.15,
   expiryBars: 5,
   allowOverlapOnly: false,
 };
@@ -195,17 +200,19 @@ function ehlersSuperSmoother(values: number[], idx: number, cutoff: number = 14)
 
 /**
  * Tight Invalidation Stop Loss (Safe Zone for Small Accounts):
- * Placed tightly behind the immediate impulse candle.
- * STRICT FILTER: If distance exceeds 1.35x ATR or $10 on Gold, setup is rejected as too wide/unclear!
+ * Placed tightly behind the immediate impulse candle (1-2 bars max).
+ * STRICT FILTER: If distance exceeds the maximum allowed stop distance, setup is rejected!
  */
 function getImmediateImpulseSL(
   bars: SniperBar[], 
   idx: number, 
   direction: 1 | -1, 
   atr: number, 
-  bufferAtr: number = 0.18
+  bufferAtr: number = 0.15,
+  maxStopDollars: number = 8.0
 ): { stopPrice: number; refCandleInfo: string; isSafe: boolean } {
-  const lookback = Math.min(4, idx);
+  // Look only at the immediate trigger/impulse bar (1-2 bars max) to ensure tight sniper invalidation
+  const lookback = Math.min(2, idx);
   let bestRefPrice = direction === -1 ? -Infinity : Infinity;
 
   for (let k = idx; k >= idx - lookback; k--) {
@@ -227,8 +234,8 @@ function getImmediateImpulseSL(
   }
 
   const dist = Math.abs(currentClose - stopPrice);
-  // Safe zone filter: must be between 0.5x ATR and 1.35x ATR (typically $4 to $10 on Gold)
-  const isSafe = dist >= 0.5 * atr && dist <= 1.35 * atr && dist <= 10.0;
+  // Safe zone filter: must have meaningful buffer (>= 0.2 ATR) and not exceed max allowed for account
+  const isSafe = dist >= 0.2 * atr && dist <= maxStopDollars;
 
   const refCandleInfo = `Impulse ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
   return { stopPrice: Number(stopPrice.toFixed(2)), refCandleInfo, isSafe };
@@ -236,10 +243,9 @@ function getImmediateImpulseSL(
 
 /**
  * Strategic Price Action Take Profit Engine:
- * "Focus on the small guaranteed trades":
- * - By default, locks in 1.1R to 1.4R internal reaction levels where price is statistically certain to bounce.
- * - Only flags EXPANSION_RUNNER if 100% certain:
- *   Body > 1.25x ATR, 200 EMA + 50 EMA steep acceleration, clean BOS, and clear runway to major BSL/SSL.
+ * "Focusing on small wins is better than huge RR trades":
+ * - When focusSmallWins is active: forces 1.0R - 1.25R quick guaranteed wins at internal reaction boundaries.
+ * - Only flags EXPANSION_RUNNER if focusSmallWins is disabled AND account is large (> $2,000).
  */
 function getStrategicTargetPrice(
   bars: SniperBar[],
@@ -248,35 +254,73 @@ function getStrategicTargetPrice(
   entry: number,
   stop: number,
   atr: number,
-  minRR: number
+  minRR: number,
+  focusSmallWins: boolean = true
 ): { targetPrice: number; levelName: string; rr: number; isExpansion: boolean } {
   const risk = Math.abs(entry - stop);
-  const lookbackShort = Math.min(18, idx);
+  const lookbackShort = Math.min(15, idx);
   const lookbackMajor = Math.min(45, idx);
 
-  // 1. Crystal Clear Break of Structure (BOS) for Expansion Runners
+  // If focusSmallWins is true, strictly enforce rapid 1.0R - 1.25R guaranteed scalps!
+  if (focusSmallWins) {
+    const targetRR = Math.max(1.0, Math.min(1.25, minRR));
+    let candidateLevel = direction === 1 ? Infinity : -Infinity;
+    let levelName = `${targetRR.toFixed(1)}R Small Guaranteed Win`;
+
+    for (let k = idx - 1; k >= idx - lookbackShort; k--) {
+      const b = bars[k];
+      if (direction === 1) {
+        const dist = b.high - entry;
+        if (dist >= 0.9 * risk && dist <= 1.35 * risk && b.high < candidateLevel) {
+          candidateLevel = b.high;
+          levelName = `Reaction Wick @ $${b.high.toFixed(2)}`;
+        }
+      } else {
+        const dist = entry - b.low;
+        if (dist >= 0.9 * risk && dist <= 1.35 * risk && b.low > candidateLevel) {
+          candidateLevel = b.low;
+          levelName = `Reaction Wick @ $${b.low.toFixed(2)}`;
+        }
+      }
+    }
+
+    let targetPrice = 0;
+    if (direction === 1) {
+      targetPrice = Number.isFinite(candidateLevel) && candidateLevel > entry ? candidateLevel : entry + risk * targetRR;
+    } else {
+      targetPrice = candidateLevel > 0 && candidateLevel < entry ? candidateLevel : entry - risk * targetRR;
+    }
+
+    const finalRR = Math.abs(targetPrice - entry) / Math.max(0.01, risk);
+    return {
+      targetPrice: Number(targetPrice.toFixed(2)),
+      levelName,
+      rr: Number(finalRR.toFixed(2)),
+      isExpansion: false
+    };
+  }
+
+  // 1. Crystal Clear Break of Structure (BOS) for Expansion Runners (Large Accounts Only)
   let isCrystalClearExpansion = false;
   let majorPoolPrice = 0;
 
   if (direction === 1) {
     const priorHigh = Math.max(...bars.slice(idx - lookbackShort, idx).map(b => b.high));
     const barBody = bars[idx].close - bars[idx].open;
-    // Must have strong green displacement body > 1.2x ATR breaking prior high cleanly
     if (bars[idx].close > priorHigh && barBody >= 1.2 * atr) {
       majorPoolPrice = Math.max(...bars.slice(idx - lookbackMajor, idx).map(b => b.high));
       const distR = (majorPoolPrice - entry) / risk;
-      if (distR >= 2.5 && distR <= 4.5) {
+      if (distR >= 2.0 && distR <= 4.0) {
         isCrystalClearExpansion = true;
       }
     }
   } else {
     const priorLow = Math.min(...bars.slice(idx - lookbackShort, idx).map(b => b.low));
     const barBody = bars[idx].open - bars[idx].close;
-    // Must have strong red displacement body > 1.2x ATR breaking prior low cleanly
     if (bars[idx].close < priorLow && barBody >= 1.2 * atr) {
       majorPoolPrice = Math.min(...bars.slice(idx - lookbackMajor, idx).map(b => b.low));
       const distR = (entry - majorPoolPrice) / risk;
-      if (distR >= 2.5 && distR <= 4.5) {
+      if (distR >= 2.0 && distR <= 4.0) {
         isCrystalClearExpansion = true;
       }
     }
@@ -292,51 +336,13 @@ function getStrategicTargetPrice(
     };
   }
 
-  // 2. Default: High-Probability Small Guaranteed Trade (1.1R - 1.4R Internal Reaction Scalp)
-  let candidateLevel = direction === 1 ? Infinity : -Infinity;
-  let levelName = '1.2R Guaranteed Scalp';
-
-  for (let k = idx - 1; k >= idx - lookbackShort; k--) {
-    const b = bars[k];
-    if (direction === 1) {
-      const dist = b.high - entry;
-      if (dist >= 1.0 * risk && dist <= 1.6 * risk && b.high < candidateLevel) {
-        candidateLevel = b.high;
-        levelName = `Internal Resistance @ $${b.high.toFixed(2)}`;
-      }
-    } else {
-      const dist = entry - b.low;
-      if (dist >= 1.0 * risk && dist <= 1.6 * risk && b.low > candidateLevel) {
-        candidateLevel = b.low;
-        levelName = `Internal Support @ $${b.low.toFixed(2)}`;
-      }
-    }
-  }
-
-  let targetPrice = 0;
-  if (direction === 1) {
-    if (Number.isFinite(candidateLevel) && candidateLevel > entry) {
-      targetPrice = candidateLevel;
-    } else {
-      const targetRR = Math.max(1.1, Math.min(1.4, minRR));
-      targetPrice = entry + risk * targetRR;
-      levelName = `${targetRR.toFixed(1)}R Safe Scalp`;
-    }
-  } else {
-    if (candidateLevel > 0 && candidateLevel < entry) {
-      targetPrice = candidateLevel;
-    } else {
-      const targetRR = Math.max(1.1, Math.min(1.4, minRR));
-      targetPrice = entry - risk * targetRR;
-      levelName = `${targetRR.toFixed(1)}R Safe Scalp`;
-    }
-  }
-
-  const finalRR = Math.abs(targetPrice - entry) / risk;
+  // Fallback to internal reaction scalp
+  const targetRR = Math.max(1.1, Math.min(1.4, minRR));
+  const targetPrice = direction === 1 ? entry + risk * targetRR : entry - risk * targetRR;
   return {
     targetPrice: Number(targetPrice.toFixed(2)),
-    levelName,
-    rr: Number(finalRR.toFixed(2)),
+    levelName: `${targetRR.toFixed(1)}R Safe Scalp`,
+    rr: Number(targetRR.toFixed(2)),
     isExpansion: false
   };
 }
@@ -514,13 +520,14 @@ export function proposeSniperTrade(
   const profile = settings.strategyProfile || 'institutional_triad';
 
   if (profile === 'institutional_triad') {
-    // 🎯 Institutional Triad: Killzone + 200 EMA Trend + VWMA Momentum + FVG Presence/Retest
-    if (isBullTrend && vwmaDivergence > 0.03 * atr && (fvgData.retestingBull || fvgData.hasBullFvg)) {
+    // 🎯 Institutional Triad: Killzone + 200 EMA Trend + VWMA Momentum + True FVG Retest
+    // STRICT RULE: Price MUST be actively retesting or inside the FVG zone, not just formed in the past!
+    if (isBullTrend && vwmaDivergence > 0.025 * atr && fvgData.retestingBull) {
       direction = 1;
-      triggerReason = `Triad: FVG Retest + Bull Trend (>200 EMA) + VWMA Momentum`;
-    } else if (isBearTrend && vwmaDivergence < -0.03 * atr && (fvgData.retestingBear || fvgData.hasBearFvg)) {
+      triggerReason = `Triad: Bullish FVG Retest @ $${fvgData.bullZone?.bottom.toFixed(2)} + Bull Trend (>200 EMA) + VWMA Momentum`;
+    } else if (isBearTrend && vwmaDivergence < -0.025 * atr && fvgData.retestingBear) {
       direction = -1;
-      triggerReason = `Triad: FVG Retest + Bear Trend (<200 EMA) + VWMA Momentum`;
+      triggerReason = `Triad: Bearish FVG Retest @ $${fvgData.bearZone?.top.toFixed(2)} + Bear Trend (<200 EMA) + VWMA Momentum`;
     } else {
       return null;
     }
@@ -561,22 +568,39 @@ export function proposeSniperTrade(
 
   const entryPrice = bar.close;
 
+  // ── ACCOUNT PRE-TRADE RISK & EQUITY FILTER LAYER ──
+  // Check account equity and user's configured riskPct (e.g. 1.0% of $100 = $1.00 risk)
+  const targetRiskPct = Math.min(2.0, Math.max(0.1, settings.riskPct));
+  const maxAllowedRiskDollars = Math.max(0.20, state.balance * (targetRiskPct / 100));
+
+  // Determine contract mode & fractional precision:
+  // For accounts <= $500 or when contractType === 'micro_contract', allow micro-contract scaling (0.001 lot / 0.1 oz).
+  // This allows small $100 accounts to trade safely risking exactly $1.00 on any normal Gold stop.
+  const isSmallAccount = state.balance <= 500 || settings.contractType === 'micro_contract';
+  const minLot = isSmallAccount ? 0.001 : 0.01;
+  const contractMultiplier = 100;
+
+  // Max stop distance allowed by account equity if using minLot:
+  const maxStopDollars = isSmallAccount ? 6.0 : Math.max(2.0, (maxAllowedRiskDollars / (minLot * contractMultiplier)) * 1.5);
+
   // 1. TIGHT IMPULSE STOP LOSS (Capital Protection & Small Account Safe Zone)
   const { stopPrice, refCandleInfo, isSafe } = getImmediateImpulseSL(
     bars, 
     idx, 
     direction, 
     atr, 
-    settings.stopBufferAtr
+    settings.stopBufferAtr,
+    maxStopDollars
   );
 
   // Reject unclear, wide trades that could harm small accounts!
   if (!isSafe) return null;
 
   const stopDistance = Math.abs(entryPrice - stopPrice);
-  if (stopDistance <= 0.3 * atr) return null;
+  if (stopDistance <= 0.2 * atr) return null;
 
-  // 2. STRATEGIC PRICE ACTION TARGET (Small Guaranteed Scalp vs 100% Clear Runner)
+  // 2. STRATEGIC PRICE ACTION TARGET (Small Guaranteed Wins vs Wide Swings)
+  const focusSmallWins = settings.focusSmallWins ?? (state.balance <= 1000);
   const { targetPrice, levelName, rr, isExpansion } = getStrategicTargetPrice(
     bars,
     idx,
@@ -584,29 +608,18 @@ export function proposeSniperTrade(
     entryPrice,
     stopPrice,
     atr,
-    settings.minRR
+    settings.minRR,
+    focusSmallWins
   );
 
   const setupType: SniperPlan['setupType'] = isExpansion ? 'EXPANSION_RUNNER' : 'INTERNAL_SCALP';
 
-  // 3. STRICT EQUITY SIZING & CAPITAL PROTECTION
-  // Gold Contract: 1 standard lot = 100 troy oz ($1 price move = $100 / lot)
-  const contractMultiplier = 100;
-  
-  // Hard capital protection: maximum risk on any single trade cannot exceed 2% of current balance!
-  const effectiveRiskPct = state.currentDrawdownPct > 5.0 
-    ? Math.min(0.5, settings.riskPct * 0.5) 
-    : Math.min(2.0, settings.riskPct);
-
-  // Maximum allowed dollar risk for this specific trade
-  const maxAllowedRiskDollars = Math.max(0.5, state.balance * (effectiveRiskPct / 100));
-
+  // Sizing calculation strictly respecting account equity
   let lots = maxAllowedRiskDollars / (stopDistance * contractMultiplier);
 
   if (settings.lotSizeMode === 'fixed_lots') {
-    const proposedFixedLots = Math.max(0.01, Number(settings.fixedLots.toFixed(2)));
+    const proposedFixedLots = Math.max(minLot, Number(settings.fixedLots.toFixed(3)));
     const proposedDollarRisk = proposedFixedLots * contractMultiplier * stopDistance;
-    // If fixed lot would risk more than 2% of equity, automatically clamp it to save the account!
     if (proposedDollarRisk > maxAllowedRiskDollars) {
       lots = maxAllowedRiskDollars / (stopDistance * contractMultiplier);
     } else {
@@ -614,13 +627,25 @@ export function proposeSniperTrade(
     }
   }
 
-  // Min lot size: 0.01 (industry standard micro-lot). Rounds to 2 decimal places.
-  lots = Math.max(0.01, Number(lots.toFixed(2)));
+  // Micro-lot precision (down to 0.001 lot for small accounts):
+  // IMPORTANT: Use floor rounding so lots never exceed risk budget after rounding!
+  if (isSmallAccount) {
+    lots = Math.max(0.001, Math.floor(lots * 10000) / 10000);
+  } else {
+    lots = Math.max(0.01, Math.floor(lots * 100) / 100);
+  }
+
   const riskDollars = Number((lots * contractMultiplier * stopDistance).toFixed(2));
   const riskPctOfEquity = Number(((riskDollars / Math.max(1, state.balance)) * 100).toFixed(2));
 
-  // Small Account Circuit Breaker: If risk exceeds 2.5% of total balance, do NOT take the trade!
-  if (riskPctOfEquity > 2.5) {
+  // Hard Circuit Breaker: reject if risk exceeds 2x target risk %
+  // For $100 account with 1% risk, this means reject if > 2% ($2.00)
+  if (riskPctOfEquity > targetRiskPct * 2.0) {
+    return null;
+  }
+
+  // Final safety: if riskDollars exceeds maxAllowedRiskDollars by any rounding, clamp lots down
+  if (riskDollars > maxAllowedRiskDollars * 1.05) {
     return null;
   }
 
@@ -711,7 +736,11 @@ export function stepSniperSimulation(
       const spreadPaid = activePlan.spreadCostDollars;
 
       if (hitStop && hitTarget) {
-        const lossDollars = Math.min(balance, activePlan.riskDollars + spreadPaid);
+        // Ambiguous bar — conservatively take the loss
+        // Use ACTUAL stop distance (stop may have been trailed to break-even)
+        const actualStopDist = Math.abs(activePlan.entry - activePlan.stop);
+        const actualLoss = actualStopDist * activePlan.lots * contractMultiplier + spreadPaid;
+        const lossDollars = Math.min(balance, Math.max(0, actualLoss));
         balance = Math.max(0, balance - lossDollars);
         peakBalance = Math.max(peakBalance, balance);
         outcomes.push({
@@ -737,7 +766,10 @@ export function stepSniperSimulation(
         status = `Position closed: Ambiguous candle. Recorded -1.0R (-$${lossDollars.toFixed(2)}).`;
         activePlan = null;
       } else if (hitStop) {
-        const lossDollars = Math.min(balance, activePlan.riskDollars + spreadPaid);
+        // Use ACTUAL current stop distance (stop may have been trailed)
+        const actualStopDist = Math.abs(activePlan.entry - activePlan.stop);
+        const actualLoss = actualStopDist * activePlan.lots * contractMultiplier + spreadPaid;
+        const lossDollars = Math.min(balance, Math.max(0, actualLoss));
         balance = Math.max(0, balance - lossDollars);
         peakBalance = Math.max(peakBalance, balance);
         outcomes.push({
@@ -764,8 +796,8 @@ export function stepSniperSimulation(
         activePlan = null;
       } else if (hitTarget) {
         const grossProfit = activePlan.riskDollars * activePlan.rr;
-        const netProfit = grossProfit - spreadPaid;
-        balance += netProfit;
+        const netProfit = Math.max(0, grossProfit - spreadPaid);
+        balance = Math.max(0, balance + netProfit);
         peakBalance = Math.max(peakBalance, balance);
         outcomes.push({
           id: activePlan.id,
@@ -813,9 +845,11 @@ export function stepSniperSimulation(
 
         if (isExhaustion) {
           const lockedPoints = isLong ? bar.close - activePlan.entry : activePlan.entry - bar.close;
-          const netDollars = lockedPoints * activePlan.lots * contractMultiplier - spreadPaid;
+          const rawDollars = lockedPoints * activePlan.lots * contractMultiplier - spreadPaid;
           const netR = Number(currentPnlR.toFixed(2));
-          balance += netDollars;
+          // Only lock if actually profitable, otherwise treat as break-even
+          const netDollars = Math.max(-activePlan.riskDollars, rawDollars);
+          balance = Math.max(0, balance + netDollars);
           peakBalance = Math.max(peakBalance, balance);
           outcomes.push({
             id: activePlan.id,
@@ -830,14 +864,14 @@ export function stepSniperSimulation(
             stopPrice: activePlan.stop,
             targetPrice: bar.close,
             lots: activePlan.lots,
-            outcome: 'win',
+            outcome: netDollars >= 0 ? 'win' : 'loss',
             netR,
             netDollars,
             spreadPaid,
             balanceAfter: balance,
             session: activePlan.session,
           });
-          status = `⚡ Quick Profit Lock: Rejection detected. Locked in +${netR.toFixed(2)}R (+$${netDollars.toFixed(2)})!`;
+          status = `⚡ Quick Profit Lock: Locked in ${netR >= 0 ? '+' : ''}${netR.toFixed(2)}R (${netDollars >= 0 ? '+' : ''}$${netDollars.toFixed(2)})!`;
           activePlan = null;
         } else if (isExpansion && currentMfeR >= 2.0) {
           // Trail runner at +1.0R guaranteed once at +2.0R
@@ -876,12 +910,15 @@ export function stepSniperSimulation(
     status = `🛑 Account Protection: Equity ($${balance.toFixed(2)}) is insufficient for new orders.`;
   }
 
+  // HARD FLOOR: Balance can NEVER go negative under any circumstance
+  balance = Math.max(0, balance);
+
   const currentDrawdownPct = peakBalance > 0 ? Math.min(100, Math.max(0, ((peakBalance - balance) / peakBalance) * 100)) : 0;
   const maxDrawdownPct = Math.min(100, Math.max(state.maxDrawdownPct, currentDrawdownPct));
 
   return {
     index: nextIdx,
-    balance: Number(balance.toFixed(2)),
+    balance: Math.max(0, Number(balance.toFixed(2))),
     peakBalance: Number(peakBalance.toFixed(2)),
     currentDrawdownPct: Number(currentDrawdownPct.toFixed(2)),
     maxDrawdownPct: Number(maxDrawdownPct.toFixed(2)),
