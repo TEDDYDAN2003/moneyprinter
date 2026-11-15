@@ -1,0 +1,16 @@
+year,setup,trades,wins,win_rate,net,pf
+2023,breakout,8,5,62.5,43.18,2.864
+2023,breakout_retest,27,6,22.22,-105.94,0.471
+2023,trend_pullback,128,45,35.16,-297.6,0.622
+2023,continuation,1,1,100.0,19.72,
+2023,sweep_reversal,63,25,39.68,-109.2,0.7
+2024,breakout,9,4,44.44,28.93,1.527
+2024,breakout_retest,53,20,37.74,-66.85,0.794
+2024,trend_pullback,129,56,43.41,-47.02,0.945
+2024,continuation,2,1,50.0,15.7,7.231
+2024,sweep_reversal,73,24,32.88,-234.6,0.575
+2025,breakout,9,5,55.56,56.15,2.182
+2025,breakout_retest,33,13,39.39,-40.11,0.837
+2025,trend_pullback,129,63,48.84,188.32,1.248
+2025,continuation,4,1,25.0,-15.56,0.539
+2025,sweep_reversal,71,16,22.54,-367.33,0.462
