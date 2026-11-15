@@ -38,7 +38,10 @@ import type { IndicatorInput } from "./IndicatorEditor";
 import { TradeProgressGauge, type TradeSetup } from "./TradeProgressGauge";
 import { OptimizationModal, type OptimizationCandidate } from "./OptimizationModal";
 import { CorrelationMatrixModal } from "./CorrelationMatrixModal";
-import { PositionBoxOverlay } from "./PositionBoxOverlay";
+import { PositionBoxOverlay, type OverlayPlan } from "./PositionBoxOverlay";
+import { SniperReplayPanel } from "./SniperReplayPanel";
+import { SniperDashboard } from "./SniperDashboard";
+import { sniperDefaults, type SniperPlan, type SniperState, type SniperSettings } from "@/lib/sniperReplay";
 
 type Bar = { time: number; open: number; high: number; low: number; close: number };
 type Metric = { bull: number; bear: number; max: number; explanation: string };
@@ -173,7 +176,7 @@ function PriceChart({
   onStatus: (s: string) => void;
   onViewport: (range: LogicalViewport) => void;
   restoreRef: React.MutableRefObject<LogicalViewport | null>;
-  plan: Plan | null;
+  plan: OverlayPlan | null;
   replaying: boolean;
   follow: boolean;
   onDetach: () => void;
@@ -478,6 +481,17 @@ export function ResearchDesk() {
     if (i !== null) setSelected(i);
   }, []);
 
+  // Institutional Sniper Simulator State
+  const [sniperOpen, setSniperOpen] = useState(false);
+  const [sniperCursor, setSniperCursor] = useState<number | null>(null);
+  const [sniperPlan, setSniperPlan] = useState<SniperPlan | null>(null);
+  const [sniperState, setSniperState] = useState<SniperState | null>(null);
+  const [sniperSettings, setSniperSettings] = useState<SniperSettings>(sniperDefaults);
+  const sniperCursorChanged = useCallback((i: number | null) => {
+    setSniperCursor(i);
+    if (i !== null) setSelected(i);
+  }, []);
+
   const [quickParams, setQuickParams] = useState(quickDefaults);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickSelected, setQuickSelected] = useState<number | null>(null);
@@ -568,6 +582,10 @@ export function ResearchDesk() {
     setReplayOpen(false);
     setReplayCursor(null);
     setReplayPlan(null);
+    setSniperOpen(false);
+    setSniperCursor(null);
+    setSniperPlan(null);
+    setSniperState(null);
     generation.current++;
     historyBlocked.current = false;
     restoreRef.current = null;
@@ -878,22 +896,21 @@ export function ResearchDesk() {
   const viewportChanged = useCallback(
     (range: LogicalViewport) => {
       viewportRef.current = range;
-      if (replayCursor === null && !replayOpen && range.from <= 150) void loadOlder();
+      if (replayCursor === null && sniperCursor === null && !replayOpen && !sniperOpen && range.from <= 150) void loadOlder();
     },
-    [loadOlder, replayCursor, replayOpen]
+    [loadOlder, replayCursor, sniperCursor, replayOpen, sniperOpen]
   );
 
-  const chartData = useMemo(
-    () =>
-      !data || replayCursor === null
-        ? data
-        : {
-            ...data,
-            candles: data.candles.slice(0, replayCursor + 1),
-            results: data.results.slice(0, replayCursor + 1),
-          },
-    [data, replayCursor]
-  );
+  const chartData = useMemo(() => {
+    const activeCursor = sniperCursor !== null ? sniperCursor : replayCursor;
+    return !data || activeCursor === null
+      ? data
+      : {
+          ...data,
+          candles: data.candles.slice(0, activeCursor + 1),
+          results: data.results.slice(0, activeCursor + 1),
+        };
+  }, [data, replayCursor, sniperCursor]);
 
   const studyOptions = useMemo<StudyOptions>(() => {
     const x = program?.inputs || {};
@@ -1225,12 +1242,42 @@ export function ResearchDesk() {
                     if (replayOpen) {
                       setReplayCursor(null);
                       setReplayPlan(null);
+                    } else if (sniperOpen) {
+                      setSniperCursor(null);
+                      setSniperPlan(null);
+                      setSniperState(null);
+                      setSniperOpen(false);
                     }
                     setReplayOpen((v) => !v);
                   }}
                   className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 disabled:opacity-40"
                 >
                   <History size={14} /> Backtest
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="Open institutional sniper simulator"
+                  disabled={!data.analysisAvailable}
+                  onClick={() => {
+                    if (sniperOpen) {
+                      setSniperCursor(null);
+                      setSniperPlan(null);
+                      setSniperState(null);
+                    } else if (replayOpen) {
+                      setReplayCursor(null);
+                      setReplayPlan(null);
+                      setReplayOpen(false);
+                    }
+                    setSniperOpen((v) => !v);
+                  }}
+                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    sniperOpen
+                      ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                      : "border-emerald-500/50 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/40"
+                  } disabled:opacity-40`}
+                >
+                  <Crosshair size={14} className="text-emerald-400" /> Sniper Simulator
                 </button>
                 <button
                   type="button"
@@ -1250,13 +1297,13 @@ export function ResearchDesk() {
                 <PriceChart
                   data={chartData!}
                   selected={selected}
-                  onSelect={replayCursor === null ? setSelected : () => {}}
+                  onSelect={replayCursor === null && sniperCursor === null ? setSelected : () => {}}
                   programs={activePrograms}
                   onStatus={setIndicatorStatus}
                   onViewport={viewportChanged}
                   restoreRef={restoreRef}
-                  plan={replayPlan}
-                  replaying={replayCursor !== null}
+                  plan={sniperOpen ? sniperPlan : replayPlan}
+                  replaying={replayCursor !== null || sniperCursor !== null}
                   follow={replayFollow}
                   onDetach={() => setReplayFollow(false)}
                   onZoneClick={zoneClick}
@@ -1277,6 +1324,36 @@ export function ResearchDesk() {
                     onClose={() => {
                       setReplayPlan(null);
                       setReplayOpen(false);
+                    }}
+                  />
+                )}
+                {sniperOpen && data.analysisAvailable && (
+                  <SniperReplayPanel
+                    bars={data.candles}
+                    selected={selected}
+                    onCursor={sniperCursorChanged}
+                    onPlan={setSniperPlan}
+                    onStateUpdate={(st, setts) => {
+                      setSniperState(st);
+                      setSniperSettings(setts);
+                    }}
+                    onClose={() => {
+                      setSniperPlan(null);
+                      setSniperState(null);
+                      setSniperCursor(null);
+                      setSniperOpen(false);
+                    }}
+                  />
+                )}
+                {sniperOpen && sniperState && (
+                  <SniperDashboard
+                    state={sniperState}
+                    settings={sniperSettings}
+                    onClose={() => {
+                      setSniperPlan(null);
+                      setSniperState(null);
+                      setSniperCursor(null);
+                      setSniperOpen(false);
                     }}
                   />
                 )}

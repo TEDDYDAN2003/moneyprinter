@@ -3,8 +3,11 @@ import { useEffect, useRef } from "react";
 import type { IChartApi, ISeriesApi, Logical } from "lightweight-charts";
 import type { TradeSetup } from "./TradeProgressGauge";
 import type { Plan } from "@/lib/replay";
+import type { SniperPlan } from "@/lib/sniperReplay";
 
 type Bar = { time: number; open: number; high: number; low: number; close: number };
+
+export type OverlayPlan = Plan | SniperPlan;
 
 interface Props {
   chart: IChartApi;
@@ -12,7 +15,7 @@ interface Props {
   node: HTMLDivElement;
   bars: Bar[];
   activeTrade: TradeSetup | null;
-  plan: Plan | null;
+  plan: OverlayPlan | null;
 }
 
 export function PositionBoxOverlay({ chart, series, node, bars, activeTrade, plan }: Props) {
@@ -54,7 +57,9 @@ export function PositionBoxOverlay({ chart, series, node, bars, activeTrade, pla
       // 1. Draw Simulated Replay Plan (if present)
       if (plan) {
         const isLong = plan.direction === 1;
-        const entryIdx = plan.filled !== null ? plan.filled : plan.signal;
+        const filledVal = "filledIndex" in plan ? plan.filledIndex : plan.filled;
+        const signalVal = "signalIndex" in plan ? plan.signalIndex : plan.signal;
+        const entryIdx = filledVal !== null && filledVal !== undefined ? filledVal : signalVal;
         const exitIdx = Math.min(bars.length - 1, entryIdx + 20);
 
         const xStart = X(entryIdx);
@@ -64,6 +69,7 @@ export function PositionBoxOverlay({ chart, series, node, bars, activeTrade, pla
         const ySL = Y(plan.stop);
 
         if ([xStart, xEnd, yEntry, yTP, ySL].every(v => v !== null && Number.isFinite(v))) {
+          const isSniper = "session" in plan;
           drawBox(ctx, {
             isLong,
             xStart,
@@ -74,8 +80,9 @@ export function PositionBoxOverlay({ chart, series, node, bars, activeTrade, pla
             entryPrice: plan.entry,
             tpPrice: plan.target,
             slPrice: plan.stop,
-            title: `SIMULATOR ${isLong ? "LONG" : "SHORT"}`,
-            status: plan.filled !== null ? "FILLED" : "PENDING LIMIT"
+            rr: "rr" in plan ? plan.rr : undefined,
+            title: isSniper ? `SNIPER ${isLong ? "BUY" : "SELL"}` : `SIMULATOR ${isLong ? "LONG" : "SHORT"}`,
+            status: filledVal !== null && filledVal !== undefined ? "FILLED" : "PENDING LIMIT"
           });
         }
       }
