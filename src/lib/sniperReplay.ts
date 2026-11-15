@@ -34,9 +34,16 @@ export interface SniperBar {
 
 export type LotSizeMode = 'risk_pct' | 'fixed_lots';
 
+export type SniperStrategyMode = 
+  | 'institutional_triad'     // All Confluences: Killzone + 200 EMA + FVG + VWMA Momentum
+  | 'vwma_crossover'          // VWMA × EMA Zero-Lag Crossover + Trend
+  | 'fvg_displacement'        // Pure ICT FVG Imbalance Retest + Killzone
+  | 'rapid_internal_scalp';   // High-Probability Internal Reaction Scalp
+
 export interface SniperSettings {
   initialBalance: number;      // Deposit / Account equity, e.g. $500, $1,000, $10,000
   lotSizeMode: LotSizeMode;    // 'risk_pct' (dynamic) or 'fixed_lots'
+  strategyProfile: SniperStrategyMode; // Strategy combination to execute
   riskPct: number;             // Risk % per trade if dynamic, e.g. 1.0% (max 2.0% hard cap)
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.01, 0.10, or 1.00
   spreadDollars: number;       // Gold spread in $/oz, default $0.25
@@ -50,6 +57,7 @@ export interface SniperSettings {
 export const sniperDefaults: SniperSettings = {
   initialBalance: 10000,
   lotSizeMode: 'risk_pct',
+  strategyProfile: 'institutional_triad',
   riskPct: 1.0,
   fixedLots: 0.10,
   spreadDollars: 0.25,        // Standard XAU/USD institutional spread ($0.25 / 2.5 pips)
@@ -333,6 +341,124 @@ function getStrategicTargetPrice(
   };
 }
 
+/**
+ * Detect recent Fair Value Gaps (FVG) and determine whether the current bar is retesting
+ */
+export function detectRecentFVG(bars: SniperBar[], idx: number, lookback: number = 15): {
+  hasBullFvg: boolean;
+  hasBearFvg: boolean;
+  retestingBull: boolean;
+  retestingBear: boolean;
+  bullZone?: { top: number; bottom: number };
+  bearZone?: { top: number; bottom: number };
+} {
+  const current = bars[idx];
+  let hasBullFvg = false;
+  let hasBearFvg = false;
+  let retestingBull = false;
+  let retestingBear = false;
+  let bullZone: { top: number; bottom: number } | undefined;
+  let bearZone: { top: number; bottom: number } | undefined;
+
+  const start = Math.max(2, idx - lookback);
+  for (let k = idx - 1; k >= start; k--) {
+    const prevBar = bars[k - 1];
+    const nextBar = bars[k + 1];
+    if (!prevBar || !nextBar) continue;
+
+    // Bullish FVG: candle k-1 high < candle k+1 low
+    if (nextBar.low > prevBar.high) {
+      hasBullFvg = true;
+      bullZone = { top: nextBar.low, bottom: prevBar.high };
+      if (current.low <= bullZone.top && current.high >= bullZone.bottom) {
+        retestingBull = true;
+        break;
+      }
+    }
+
+    // Bearish FVG: candle k-1 low > candle k+1 high
+    if (prevBar.low > nextBar.high) {
+      hasBearFvg = true;
+      bearZone = { top: prevBar.low, bottom: nextBar.high };
+      if (current.high >= bearZone.bottom && current.low <= bearZone.top) {
+        retestingBear = true;
+        break;
+      }
+    }
+  }
+
+  return { hasBullFvg, hasBearFvg, retestingBull, retestingBear, bullZone, bearZone };
+}
+
+export interface SniperRadarStatus {
+  session: { inKillzone: boolean; name: string; priority: number };
+  macroTrend: { isBull: boolean; isBear: boolean; ema200: number; ema50Slope: number; label: string };
+  vwma: { divergence: number; isBullCross: boolean; isBearCross: boolean; label: string };
+  fvg: { hasBullFvg: boolean; hasBearFvg: boolean; retesting: boolean; label: string };
+}
+
+/** Compute live multi-rule radar readings for display in Replay Panel */
+export function getSniperRadarStatus(bars: SniperBar[], idx: number): SniperRadarStatus {
+  if (idx < 0 || idx >= bars.length) {
+    return {
+      session: { inKillzone: false, name: "Off-Hours", priority: 0 },
+      macroTrend: { isBull: false, isBear: false, ema200: 0, ema50Slope: 0, label: "Neutral" },
+      vwma: { divergence: 0, isBullCross: false, isBearCross: false, label: "Neutral" },
+      fvg: { hasBullFvg: false, hasBearFvg: false, retesting: false, label: "No Active Zone" },
+    };
+  }
+
+  const bar = bars[idx];
+  const session = getKillzoneSession(bar.time);
+  const atr = computeATR(bars, idx, 14);
+  const ema200 = computeEMA(bars, idx, 200);
+  const ema50 = computeEMA(bars, idx, 50);
+  const ema50Prev = idx > 0 ? computeEMA(bars, idx - 1, 50) : ema50;
+  const ema50Slope = ema50 - ema50Prev;
+
+  const isBullTrend = bar.close > ema200 && ema50Slope > 0;
+  const isBearTrend = bar.close < ema200 && ema50Slope < 0;
+  const macroLabel = isBullTrend
+    ? `Bullish (> 200 EMA & +50 Slope)`
+    : isBearTrend
+    ? `Bearish (< 200 EMA & -50 Slope)`
+    : `Consolidation (Flat)`;
+
+  const closes = bars.slice(0, idx + 1).map(b => b.close);
+  const ssPrice = ehlersSuperSmoother(closes, idx, 14);
+  const ssPricePrev = idx > 0 ? ehlersSuperSmoother(closes, idx - 1, 14) : ssPrice;
+  const vwmaDivergence = ssPrice - ssPricePrev;
+
+  const isBullCross = vwmaDivergence > 0.03 * atr;
+  const isBearCross = vwmaDivergence < -0.03 * atr;
+  const vwmaLabel = isBullCross
+    ? `Bullish Momentum (+${(vwmaDivergence / Math.max(0.1, atr)).toFixed(2)} ATR)`
+    : isBearCross
+    ? `Bearish Momentum (${(vwmaDivergence / Math.max(0.1, atr)).toFixed(2)} ATR)`
+    : `Neutral (${(vwmaDivergence / Math.max(0.1, atr)).toFixed(2)} ATR)`;
+
+  const fvgData = detectRecentFVG(bars, idx, 15);
+  const fvgLabel = fvgData.retestingBull
+    ? `Bullish FVG Retest @ $${fvgData.bullZone?.bottom.toFixed(2)}`
+    : fvgData.retestingBear
+    ? `Bearish FVG Retest @ $${fvgData.bearZone?.top.toFixed(2)}`
+    : fvgData.hasBullFvg || fvgData.hasBearFvg
+    ? `Active FVG in Structure`
+    : `No Active Imbalance`;
+
+  return {
+    session,
+    macroTrend: { isBull: isBullTrend, isBear: isBearTrend, ema200, ema50Slope, label: macroLabel },
+    vwma: { divergence: vwmaDivergence, isBullCross, isBearCross, label: vwmaLabel },
+    fvg: {
+      hasBullFvg: fvgData.hasBullFvg,
+      hasBearFvg: fvgData.hasBearFvg,
+      retesting: fvgData.retestingBull || fvgData.retestingBear,
+      label: fvgLabel,
+    },
+  };
+}
+
 /** 
  * Formulate a sniper entry proposal with strict small-account equity protections.
  */
@@ -375,6 +501,9 @@ export function proposeSniperTrade(
   const ssPricePrev = ehlersSuperSmoother(closes, idx - 1, 14);
   const vwmaDivergence = ssPrice - ssPricePrev;
 
+  // Recent FVG zones
+  const fvgData = detectRecentFVG(bars, idx, 15);
+
   // RULE 2: Macro Trend & Regime Alignment (200 EMA + 50 EMA Slope)
   const isBullTrend = bar.close > ema200 && ema50Slope > 0;
   const isBearTrend = bar.close < ema200 && ema50Slope < 0;
@@ -382,14 +511,52 @@ export function proposeSniperTrade(
   let direction: 1 | -1 = 0 as never;
   let triggerReason = '';
 
-  if (isBullTrend && vwmaDivergence > 0.04 * atr) {
-    direction = 1;
-    triggerReason = `Bullish Displacement (>200 EMA & +50 EMA slope)`;
-  } else if (isBearTrend && vwmaDivergence < -0.04 * atr) {
-    direction = -1;
-    triggerReason = `Bearish Displacement (<200 EMA & -50 EMA slope)`;
+  const profile = settings.strategyProfile || 'institutional_triad';
+
+  if (profile === 'institutional_triad') {
+    // 🎯 Institutional Triad: Killzone + 200 EMA Trend + VWMA Momentum + FVG Presence/Retest
+    if (isBullTrend && vwmaDivergence > 0.03 * atr && (fvgData.retestingBull || fvgData.hasBullFvg)) {
+      direction = 1;
+      triggerReason = `Triad: FVG Retest + Bull Trend (>200 EMA) + VWMA Momentum`;
+    } else if (isBearTrend && vwmaDivergence < -0.03 * atr && (fvgData.retestingBear || fvgData.hasBearFvg)) {
+      direction = -1;
+      triggerReason = `Triad: FVG Retest + Bear Trend (<200 EMA) + VWMA Momentum`;
+    } else {
+      return null;
+    }
+  } else if (profile === 'vwma_crossover') {
+    // ⚡ VWMA × EMA Crossover: High volume acceleration crossing short-term EMA
+    if (vwmaDivergence > 0.035 * atr && ema50Slope >= 0 && bar.close > ema50) {
+      direction = 1;
+      triggerReason = `VWMA × EMA Zero-Lag Bullish Volume Cross`;
+    } else if (vwmaDivergence < -0.035 * atr && ema50Slope <= 0 && bar.close < ema50) {
+      direction = -1;
+      triggerReason = `VWMA × EMA Zero-Lag Bearish Volume Cross`;
+    } else {
+      return null;
+    }
+  } else if (profile === 'fvg_displacement') {
+    // 📊 Pure ICT FVG Retest: Price pulling back into institutional imbalance
+    if (fvgData.retestingBull && bar.close > ema50) {
+      direction = 1;
+      triggerReason = `ICT Bullish FVG Imbalance Retest`;
+    } else if (fvgData.retestingBear && bar.close < ema50) {
+      direction = -1;
+      triggerReason = `ICT Bearish FVG Imbalance Retest`;
+    } else {
+      return null;
+    }
   } else {
-    return null;
+    // 🏹 Rapid Internal Scalp: Frequent 1.1R - 1.4R internal reaction scalps
+    if (isBullTrend && vwmaDivergence > 0.02 * atr) {
+      direction = 1;
+      triggerReason = `Internal Reaction Quick Scalp (>200 EMA)`;
+    } else if (isBearTrend && vwmaDivergence < -0.02 * atr) {
+      direction = -1;
+      triggerReason = `Internal Reaction Quick Scalp (<200 EMA)`;
+    } else {
+      return null;
+    }
   }
 
   const entryPrice = bar.close;
@@ -793,4 +960,67 @@ export function computeSniperStats(outcomes: SniperOutcome[], initialBalance: nu
     netReturnPct: Number(netReturnPct.toFixed(2)),
     totalR: Number(totalR.toFixed(2)),
   };
+}
+
+export interface SniperSavedRun {
+  id: string;
+  timestamp: number;
+  strategyProfile: SniperStrategyMode;
+  strategyName: string;
+  initialBalance: number;
+  finalBalance: number;
+  netDollars: number;
+  netReturnPct: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdownPct: number;
+  totalTrades: number;
+  winCount: number;
+  lossCount: number;
+}
+
+export function getStrategyDisplayName(profile: SniperStrategyMode): string {
+  switch (profile) {
+    case 'institutional_triad':
+      return 'Institutional Triad (FVG + VWMA + 200 EMA)';
+    case 'vwma_crossover':
+      return 'VWMA × EMA Zero-Lag Crossover';
+    case 'fvg_displacement':
+      return 'Pure ICT FVG Retest & Displacement';
+    case 'rapid_internal_scalp':
+      return 'Rapid Internal Reaction Scalp';
+    default:
+      return 'Institutional Sniper';
+  }
+}
+
+const STORAGE_KEY = 'mp_sniper_history_v1';
+
+export function loadSavedSniperRuns(): SniperSavedRun[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSniperRun(run: SniperSavedRun): SniperSavedRun[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const existing = loadSavedSniperRuns();
+    const updated = [run, ...existing.filter(r => r.id !== run.id)].slice(0, 50);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+
+export function clearSavedSniperRuns(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
 }
