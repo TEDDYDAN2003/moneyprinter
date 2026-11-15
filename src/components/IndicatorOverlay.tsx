@@ -5,7 +5,15 @@ import type { IndicatorProgram } from "./IndicatorEditor";
 import { indicatorSandboxHtml } from "@/lib/indicatorSandbox";
 
 type Bar = { time: number; open: number; high: number; low: number; close: number };
-type Geometry = { x0: number; step: number; y0: number; yStep: number; yBase: number };
+type Geometry = {
+  x0: number;
+  step: number;
+  y0: number;
+  yStep: number;
+  yBase: number;
+  fromIdx: number;
+  refLogical: number;
+};
 
 export function IndicatorOverlay({
   chart,
@@ -78,29 +86,30 @@ export function IndicatorOverlay({
     let raf = 0;
     let isDragging = false;
 
-    function geometry(): Geometry | null {
-      const scale = chart.timeScale();
-      const x0 = scale.logicalToCoordinate(0 as Logical);
-      const x1 = scale.logicalToCoordinate(1 as Logical);
-      const base = bars[bars.length - 1]?.close;
-      if (base === undefined) return null;
-      const y0 = series.priceToCoordinate(base);
-      const y1 = series.priceToCoordinate(base + 1);
-      if (x0 === null || x1 === null || y0 === null || y1 === null) return null;
-      return { x0, step: x1 - x0, y0, yStep: y1 - y0, yBase: base };
-    }
-
     // Hardware accelerated GPU CSS Matrix transform for 120 FPS dragging without worker delay
     function sync() {
       raf = 0;
       const old = drawn.current;
-      const now = geometry();
       const c = surface.current;
-      if (!old || !now || !c || !old.step || !old.yStep) return;
-      const sx = now.step / old.step;
-      const sy = now.yStep / old.yStep;
-      const tx = now.x0 - sx * old.x0;
-      const ty = now.y0 - sy * old.y0 + now.yStep * (old.yBase - now.yBase);
+      if (!old || !c || !old.step || !old.yStep) return;
+
+      const scale = chart.timeScale();
+      const nowRefX = scale.logicalToCoordinate(old.refLogical as Logical);
+      const nowRefNextX = scale.logicalToCoordinate((old.refLogical + 1) as Logical);
+      if (nowRefX === null || nowRefNextX === null) return;
+      const nowStep = nowRefNextX - nowRefX;
+      const nowSliceX0 = nowRefX - nowStep * (old.refLogical - old.fromIdx);
+
+      const nowY0 = series.priceToCoordinate(old.yBase);
+      const nowY1 = series.priceToCoordinate(old.yBase + 1);
+      if (nowY0 === null || nowY1 === null) return;
+      const nowYStep = nowY1 - nowY0;
+
+      const sx = nowStep / old.step;
+      const sy = nowYStep / old.yStep;
+      const tx = nowSliceX0 - sx * old.x0;
+      const ty = nowY0 - sy * old.y0;
+
       if ([sx, sy, tx, ty].every(Number.isFinite)) {
         c.style.transform = `matrix(${sx}, 0, 0, ${sy}, ${tx}, ${ty})`;
       }
@@ -108,31 +117,52 @@ export function IndicatorOverlay({
     syncRef.current = sync;
 
     function render() {
-      const g = geometry();
       const range = chart.timeScale().getVisibleLogicalRange();
-      if (!g || !range) return;
+      if (!range || bars.length === 0) return;
+
+      const scale = chart.timeScale();
+      const refLogical = Math.floor(range.from);
+      const xRef = scale.logicalToCoordinate(refLogical as Logical);
+      const xRefNext = scale.logicalToCoordinate((refLogical + 1) as Logical);
+      if (xRef === null || xRefNext === null) return;
+
+      const step = xRefNext - xRef;
+      if (!step || !Number.isFinite(step)) return;
+
+      const base = bars[bars.length - 1]?.close;
+      if (base === undefined) return null;
+      const y0 = series.priceToCoordinate(base);
+      const y1 = series.priceToCoordinate(base + 1);
+      if (y0 === null || y1 === null) return null;
+      const yStep = y1 - y0;
+
+      // Padded slice around visible range: 300 bars left lookback for EMA/ATR calculations
+      const PAD = 300;
+      const fromIdx = Math.max(0, Math.floor(range.from) - PAD);
+      const toIdx = Math.min(bars.length - 1, Math.ceil(range.to) + 20);
+      const slicedBars = bars.slice(fromIdx, toIdx + 1);
+
+      // sliceX0 is the pixel X coordinate of slicedBars[0] (which is index fromIdx)
+      const sliceX0 = xRef - step * (refLogical - fromIdx);
+      const visibleFrom = range.from - fromIdx;
+      const visibleTo = range.to - fromIdx;
 
       const width = Math.max(1, Math.round(node.clientWidth));
       const height = Math.max(1, Math.round(node.clientHeight));
       const paneWidth = Math.max(1, width - chart.priceScale("right").width());
       const paneHeight = Math.max(1, height - chart.timeScale().height());
+
       const id = ++seq.current;
       requested.current.clear();
-      requested.current.set(id, g);
-
-      // ── OOM FIX: Never postMessage the full bars array (can be 50k+ candles).
-      // The indicator sandbox only needs bars in a padded window around the
-      // visible range so it can compute look-back indicators (EMA, ATR etc.).
-      // We send at most 2,000 bars: the visible slice plus a 500-bar look-back
-      // buffer to the left for warm-up. This keeps the clone payload tiny and
-      // prevents the DataCloneError / out-of-memory crash.
-      const PAD = 500;   // warm-up bars for indicators (EMA200 needs ~200)
-      const fromIdx = Math.max(0, Math.floor(range.from) - PAD);
-      const toIdx   = Math.min(bars.length - 1, Math.ceil(range.to) + 10);
-      const slicedBars = bars.slice(fromIdx, toIdx + 1);
-      // Adjust visible logical range so indices stay correct inside the sandbox
-      const visibleFrom = range.from - fromIdx;
-      const visibleTo   = range.to   - fromIdx;
+      requested.current.set(id, {
+        x0: sliceX0,
+        step,
+        y0,
+        yStep,
+        yBase: base,
+        fromIdx,
+        refLogical,
+      });
 
       frame.current?.contentWindow?.postMessage(
         {
@@ -148,7 +178,11 @@ export function IndicatorOverlay({
             height,
             paneWidth,
             paneHeight,
-            ...g,
+            x0: sliceX0,
+            step,
+            y0,
+            yStep,
+            yBase: base,
             visible: { from: visibleFrom, to: visibleTo },
           },
         },
@@ -161,7 +195,7 @@ export function IndicatorOverlay({
       if (!raf) raf = requestAnimationFrame(sync);
       clearTimeout(timer);
       if (!isDragging) {
-        timer = setTimeout(render, 100);
+        timer = setTimeout(render, 60);
       }
     }
 
@@ -179,7 +213,7 @@ export function IndicatorOverlay({
       if (isDragging) {
         isDragging = false;
         clearTimeout(timer);
-        timer = setTimeout(render, 50); // Sharp render right after releasing
+        timer = setTimeout(render, 40); // Sharp render right after releasing
       }
     }
 
@@ -195,8 +229,9 @@ export function IndicatorOverlay({
     });
     ro.observe(node);
 
-    // Initial render when bars or program change
-    render();
+    // Debounced render when bars or program change to avoid choking replay ticks
+    clearTimeout(timer);
+    timer = setTimeout(render, 30);
 
     return () => {
       clearTimeout(timer);

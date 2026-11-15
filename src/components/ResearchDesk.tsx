@@ -309,7 +309,15 @@ function PriceChart({
       range = chart.timeScale().getVisibleLogicalRange(),
       entering = replaying && !prev.replaying,
       leaving = !replaying && prev.replaying;
-    series.setData(data.candles.map((c) => ({ ...c, time: c.time as import("lightweight-charts").UTCTimestamp })));
+
+    const lastBar = data.candles[data.candles.length - 1];
+    // High-performance streaming update when stepping forward by 1 candle during simulation
+    if (replaying && prev.replaying && data.candles.length === prev.length + 1 && lastBar) {
+      series.update({ ...lastBar, time: lastBar.time as import("lightweight-charts").UTCTimestamp });
+    } else {
+      series.setData(data.candles.map((c) => ({ ...c, time: c.time as import("lightweight-charts").UTCTimestamp })));
+    }
+
     if (data.candles.length) {
       if (entering || leaving || (replaying && follow && !prev.follow)) {
         const end = data.candles.length;
