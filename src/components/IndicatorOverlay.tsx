@@ -13,7 +13,7 @@ export function IndicatorOverlay({
   node,
   bars,
   program,
-  onStatus
+  onStatus,
 }: {
   chart: IChartApi;
   series: ISeriesApi<"Candlestick">;
@@ -28,22 +28,27 @@ export function IndicatorOverlay({
   const seq = useRef(0);
   const callback = useRef(onStatus);
   const drawn = useRef<Geometry | null>(null);
-  const requested = useRef(new Map<number, Geometry>());
+  const requested = useRef<Map<number, Geometry>>(new Map());
   const syncRef = useRef<() => void>(() => {});
   callback.current = onStatus;
 
+  // Handle messages from the isolated sandboxed iframe worker
   useEffect(() => {
     function message(e: MessageEvent) {
       if (e.source !== frame.current?.contentWindow || e.data?.channel !== "mp-indicator-v1") return;
+      
       if (e.data.type === "ready") {
         setFrameReady(true);
         return;
       }
+
       if (e.data.type === "frame" && e.data.bitmap instanceof ImageBitmap) {
+        // Accept the latest rendered frame
         if (e.data.id === seq.current && surface.current) {
           const c = surface.current;
           c.width = e.data.width;
           c.height = e.data.height;
+          c.style.transform = ""; // Reset hardware matrix transform to exact alignment
           const ctx = c.getContext("2d");
           ctx?.clearRect(0, 0, c.width, c.height);
           ctx?.drawImage(e.data.bitmap, 0, 0);
@@ -60,28 +65,32 @@ export function IndicatorOverlay({
         callback.current(String(e.data.message || "Indicator error"));
       }
     }
+
     window.addEventListener("message", message);
     return () => window.removeEventListener("message", message);
   }, []);
 
+  // Rendering & hardware transform synchronization
   useEffect(() => {
     if (!frameReady) return;
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     let raf = 0;
-    let dragging = false;
-    let lastRenderTime = 0;
+    let isDragging = false;
 
     function geometry(): Geometry | null {
       const scale = chart.timeScale();
       const x0 = scale.logicalToCoordinate(0 as Logical);
       const x1 = scale.logicalToCoordinate(1 as Logical);
       const base = bars[bars.length - 1]?.close;
+      if (base === undefined) return null;
       const y0 = series.priceToCoordinate(base);
       const y1 = series.priceToCoordinate(base + 1);
       if (x0 === null || x1 === null || y0 === null || y1 === null) return null;
       return { x0, step: x1 - x0, y0, yStep: y1 - y0, yBase: base };
     }
 
+    // Hardware accelerated GPU CSS Matrix transform for 120 FPS dragging without worker delay
     function sync() {
       raf = 0;
       const old = drawn.current;
@@ -93,7 +102,7 @@ export function IndicatorOverlay({
       const tx = now.x0 - sx * old.x0;
       const ty = now.y0 - sy * old.y0 + now.yStep * (old.yBase - now.yBase);
       if ([sx, sy, tx, ty].every(Number.isFinite)) {
-        c.style.transform = `matrix(${sx},0,0,${sy},${tx},${ty})`;
+        c.style.transform = `matrix(${sx}, 0, 0, ${sy}, ${tx}, ${ty})`;
       }
     }
     syncRef.current = sync;
@@ -101,10 +110,8 @@ export function IndicatorOverlay({
     function render() {
       const g = geometry();
       const range = chart.timeScale().getVisibleLogicalRange();
-      if (!g || !range) {
-        callback.current("Waiting for chart geometry…");
-        return;
-      }
+      if (!g || !range) return;
+
       const width = Math.max(1, Math.round(node.clientWidth));
       const height = Math.max(1, Math.round(node.clientHeight));
       const paneWidth = Math.max(1, width - chart.priceScale("right").width());
@@ -112,9 +119,7 @@ export function IndicatorOverlay({
       const id = ++seq.current;
       requested.current.clear();
       requested.current.set(id, g);
-      lastRenderTime = performance.now();
 
-      // Pass bars strictly to current replay cursor without future data
       frame.current?.contentWindow?.postMessage(
         {
           channel: "mp-indicator-v1",
@@ -130,61 +135,63 @@ export function IndicatorOverlay({
             paneWidth,
             paneHeight,
             ...g,
-            visible: { from: range.from, to: range.to }
-          }
+            visible: { from: range.from, to: range.to },
+          },
         },
         "*"
       );
     }
 
-    // High responsiveness scheduler: immediate render on replay steps or program changes!
-    function schedule(immediate = false) {
+    // Request animation frame for smooth drag transform; debounce worker re-render
+    function schedule() {
       if (!raf) raf = requestAnimationFrame(sync);
       clearTimeout(timer);
-      const now = performance.now();
-      if (immediate || now - lastRenderTime >= 35) {
-        lastRenderTime = now;
-        render();
-      } else {
-        timer = setTimeout(() => {
-          lastRenderTime = performance.now();
-          render();
-        }, 20);
+      if (!isDragging) {
+        timer = setTimeout(render, 100);
       }
     }
 
-    function down() {
-      dragging = true;
+    function onPointerDown() {
+      isDragging = true;
     }
-    function move() {
-      if (dragging) schedule(false);
-    }
-    function up() {
-      if (dragging) {
-        dragging = false;
-        schedule(true);
+
+    function onPointerMove() {
+      if (isDragging && !raf) {
+        raf = requestAnimationFrame(sync);
       }
     }
 
-    chart.timeScale().subscribeVisibleLogicalRangeChange(() => schedule(false));
-    node.addEventListener("wheel", () => schedule(false), { passive: true });
-    node.addEventListener("pointerdown", down);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    const ro = new ResizeObserver(() => schedule(true));
+    function onPointerUp() {
+      if (isDragging) {
+        isDragging = false;
+        clearTimeout(timer);
+        timer = setTimeout(render, 50); // Sharp render right after releasing
+      }
+    }
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(schedule);
+    node.addEventListener("wheel", schedule, { passive: true });
+    node.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(render, 50);
+    });
     ro.observe(node);
 
-    // Initial render on mount / bar change is immediate
-    schedule(true);
+    // Initial render when bars or program change
+    render();
 
     return () => {
       clearTimeout(timer);
       cancelAnimationFrame(raf);
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(() => schedule(false));
-      node.removeEventListener("wheel", () => schedule(false));
-      node.removeEventListener("pointerdown", down);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(schedule);
+      node.removeEventListener("wheel", schedule);
+      node.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
       ro.disconnect();
     };
   }, [frameReady, chart, series, node, bars, program]);
