@@ -134,9 +134,14 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Live Status</span>
               {p ? (
-                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${p.direction === 1 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                  {p.filledIndex !== null ? "FILLED POSITION" : "PENDING LIMIT"}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                    {p.setupType === 'OB_RETEST' ? 'OB RETEST' : p.setupType === 'LIQUIDITY_SWEEP' ? 'SWEEP RECLAIM' : 'EXPANSION'}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${p.direction === 1 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                    {p.filledIndex !== null ? "FILLED" : "LIMIT"}
+                  </span>
+                </div>
               ) : (
                 <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[9px] text-slate-400">SCANNING</span>
               )}
