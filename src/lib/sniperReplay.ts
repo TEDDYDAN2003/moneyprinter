@@ -34,6 +34,7 @@ export interface SniperBar {
 
 export type LotSizeMode = 'risk_pct' | 'fixed_lots';
 export type ContractType = 'micro_contract' | 'standard_contract';
+export type SniperSessionFilter = 'all_sessions' | 'killzone_only' | 'overlap_only';
 
 export type SniperStrategyMode = 
   | 'institutional_triad'     // All Confluences: Killzone + 200 EMA + FVG + VWMA Momentum
@@ -46,6 +47,7 @@ export interface SniperSettings {
   lotSizeMode: LotSizeMode;    // 'risk_pct' (dynamic) or 'fixed_lots'
   contractType: ContractType;  // 'micro_contract' (min 0.001 lot) or 'standard_contract' (min 0.01 lot)
   strategyProfile: SniperStrategyMode; // Strategy combination to execute
+  sessionFilter: SniperSessionFilter;  // Session filter: all sessions or strict killzones
   focusSmallWins: boolean;     // Strict small-account rule: 1.0R - 1.25R guaranteed scalps, no huge risky swings
   riskPct: number;             // Risk % per trade if dynamic, e.g. 1.0% (max 2.0% hard cap)
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.01, 0.10, or 1.00
@@ -58,10 +60,11 @@ export interface SniperSettings {
 }
 
 export const sniperDefaults: SniperSettings = {
-  initialBalance: 10000,
+  initialBalance: 1000,
   lotSizeMode: 'risk_pct',
   contractType: 'micro_contract',
   strategyProfile: 'institutional_triad',
+  sessionFilter: 'killzone_only',
   focusSmallWins: true,
   riskPct: 1.0,
   fixedLots: 0.10,
@@ -209,10 +212,10 @@ function getImmediateImpulseSL(
   direction: 1 | -1, 
   atr: number, 
   bufferAtr: number = 0.15,
-  maxStopDollars: number = 8.0
+  maxStopDollars: number = 15.0
 ): { stopPrice: number; refCandleInfo: string; isSafe: boolean } {
-  // Look only at the immediate trigger/impulse bar (1-2 bars max) to ensure tight sniper invalidation
-  const lookback = Math.min(2, idx);
+  // Institutional structural invalidation: look back 3-4 bars to identify swing pivot / order block
+  const lookback = Math.min(4, idx);
   let bestRefPrice = direction === -1 ? -Infinity : Infinity;
 
   for (let k = idx; k >= idx - lookback; k--) {
@@ -228,16 +231,16 @@ function getImmediateImpulseSL(
   let stopPrice = 0;
 
   if (direction === -1) {
-    stopPrice = bestRefPrice + bufferAtr * atr;
+    stopPrice = bestRefPrice + Math.max(0.25, bufferAtr * atr);
   } else {
-    stopPrice = bestRefPrice - bufferAtr * atr;
+    stopPrice = bestRefPrice - Math.max(0.25, bufferAtr * atr);
   }
 
   const dist = Math.abs(currentClose - stopPrice);
-  // Safe zone filter: must have meaningful buffer (>= 0.2 ATR) and not exceed max allowed for account
-  const isSafe = dist >= 0.2 * atr && dist <= maxStopDollars;
+  // Safe zone filter: must have meaningful buffer (>= 0.15 ATR) and not exceed max volatility ceiling
+  const isSafe = dist >= 0.15 * atr && dist <= maxStopDollars;
 
-  const refCandleInfo = `Impulse ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
+  const refCandleInfo = `Structural ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
   return { stopPrice: Number(stopPrice.toFixed(2)), refCandleInfo, isSafe };
 }
 
@@ -348,9 +351,9 @@ function getStrategicTargetPrice(
 }
 
 /**
- * Detect recent Fair Value Gaps (FVG) and determine whether the current bar is retesting
+ * Detect recent Fair Value Gaps (FVG) and determine whether price is currently retesting or reacting
  */
-export function detectRecentFVG(bars: SniperBar[], idx: number, lookback: number = 15): {
+export function detectRecentFVG(bars: SniperBar[], idx: number, lookback: number = 20): {
   hasBullFvg: boolean;
   hasBearFvg: boolean;
   retestingBull: boolean;
@@ -373,24 +376,40 @@ export function detectRecentFVG(bars: SniperBar[], idx: number, lookback: number
     if (!prevBar || !nextBar) continue;
 
     // Bullish FVG: candle k-1 high < candle k+1 low
-    if (nextBar.low > prevBar.high) {
+    if (nextBar.low > prevBar.high && !bullZone) {
       hasBullFvg = true;
       bullZone = { top: nextBar.low, bottom: prevBar.high };
-      if (current.low <= bullZone.top && current.high >= bullZone.bottom) {
+
+      // Check if price interacted with the FVG (within current or prior 2 bars) and is holding above bottom
+      const interactedRecently = [idx, idx - 1, idx - 2].some(t => {
+        if (t < 0 || t >= bars.length) return false;
+        const b = bars[t];
+        return b.low <= bullZone!.top && b.high >= bullZone!.bottom;
+      });
+
+      if (interactedRecently && current.close >= bullZone.bottom) {
         retestingBull = true;
-        break;
       }
     }
 
     // Bearish FVG: candle k-1 low > candle k+1 high
-    if (prevBar.low > nextBar.high) {
+    if (prevBar.low > nextBar.high && !bearZone) {
       hasBearFvg = true;
       bearZone = { top: prevBar.low, bottom: nextBar.high };
-      if (current.high >= bearZone.bottom && current.low <= bearZone.top) {
+
+      // Check if price interacted with the FVG (within current or prior 2 bars) and is holding below top
+      const interactedRecently = [idx, idx - 1, idx - 2].some(t => {
+        if (t < 0 || t >= bars.length) return false;
+        const b = bars[t];
+        return b.high >= bearZone!.bottom && b.low <= bearZone!.top;
+      });
+
+      if (interactedRecently && current.close <= bearZone.top) {
         retestingBear = true;
-        break;
       }
     }
+
+    if (bullZone && bearZone) break;
   }
 
   return { hasBullFvg, hasBearFvg, retestingBull, retestingBear, bullZone, bearZone };
@@ -486,8 +505,9 @@ export function proposeSniperTrade(
   }
 
   const session = getKillzoneSession(bar.time);
-  if (!session.inKillzone) return null;
-  if (settings.allowOverlapOnly && session.priority !== 1) return null;
+  const sessionFilter = settings.sessionFilter || (settings.allowOverlapOnly ? 'overlap_only' : 'killzone_only');
+  if (sessionFilter === 'overlap_only' && session.priority !== 1) return null;
+  if (sessionFilter === 'killzone_only' && !session.inKillzone) return null;
 
   // Drawdown Defense Mode: if account is down > 5%, only take 1 trade today
   if (state.currentDrawdownPct > 5.0 && tradesToday >= 1) {
@@ -507,12 +527,12 @@ export function proposeSniperTrade(
   const ssPricePrev = ehlersSuperSmoother(closes, idx - 1, 14);
   const vwmaDivergence = ssPrice - ssPricePrev;
 
-  // Recent FVG zones
-  const fvgData = detectRecentFVG(bars, idx, 15);
+  // Recent FVG zones with 20-bar lookback
+  const fvgData = detectRecentFVG(bars, idx, 20);
 
   // RULE 2: Macro Trend & Regime Alignment (200 EMA + 50 EMA Slope)
-  const isBullTrend = bar.close > ema200 && ema50Slope > 0;
-  const isBearTrend = bar.close < ema200 && ema50Slope < 0;
+  const isBullTrend = bar.close > ema200 && ema50Slope >= -0.01;
+  const isBearTrend = bar.close < ema200 && ema50Slope <= 0.01;
 
   let direction: 1 | -1 = 0 as never;
   let triggerReason = '';
@@ -520,23 +540,22 @@ export function proposeSniperTrade(
   const profile = settings.strategyProfile || 'institutional_triad';
 
   if (profile === 'institutional_triad') {
-    // 🎯 Institutional Triad: Killzone + 200 EMA Trend + VWMA Momentum + True FVG Retest
-    // STRICT RULE: Price MUST be actively retesting or inside the FVG zone, not just formed in the past!
-    if (isBullTrend && vwmaDivergence > 0.025 * atr && fvgData.retestingBull) {
+    // 🎯 Institutional Triad: 200 EMA Trend Alignment + FVG Mitigation + Volume Momentum
+    if (isBullTrend && vwmaDivergence >= -0.01 * atr && fvgData.retestingBull) {
       direction = 1;
-      triggerReason = `Triad: Bullish FVG Retest @ $${fvgData.bullZone?.bottom.toFixed(2)} + Bull Trend (>200 EMA) + VWMA Momentum`;
-    } else if (isBearTrend && vwmaDivergence < -0.025 * atr && fvgData.retestingBear) {
+      triggerReason = `Triad: Bullish FVG Retest @ $${fvgData.bullZone?.bottom.toFixed(2)} + Macro Bull (>200 EMA)`;
+    } else if (isBearTrend && vwmaDivergence <= 0.01 * atr && fvgData.retestingBear) {
       direction = -1;
-      triggerReason = `Triad: Bearish FVG Retest @ $${fvgData.bearZone?.top.toFixed(2)} + Bear Trend (<200 EMA) + VWMA Momentum`;
+      triggerReason = `Triad: Bearish FVG Retest @ $${fvgData.bearZone?.top.toFixed(2)} + Macro Bear (<200 EMA)`;
     } else {
       return null;
     }
   } else if (profile === 'vwma_crossover') {
     // ⚡ VWMA × EMA Crossover: High volume acceleration crossing short-term EMA
-    if (vwmaDivergence > 0.035 * atr && ema50Slope >= 0 && bar.close > ema50) {
+    if (vwmaDivergence > 0.02 * atr && ema50Slope >= 0 && bar.close > ema50) {
       direction = 1;
       triggerReason = `VWMA × EMA Zero-Lag Bullish Volume Cross`;
-    } else if (vwmaDivergence < -0.035 * atr && ema50Slope <= 0 && bar.close < ema50) {
+    } else if (vwmaDivergence < -0.02 * atr && ema50Slope <= 0 && bar.close < ema50) {
       direction = -1;
       triggerReason = `VWMA × EMA Zero-Lag Bearish Volume Cross`;
     } else {
@@ -555,10 +574,10 @@ export function proposeSniperTrade(
     }
   } else {
     // 🏹 Rapid Internal Scalp: Frequent 1.1R - 1.4R internal reaction scalps
-    if (isBullTrend && vwmaDivergence > 0.02 * atr) {
+    if (isBullTrend && vwmaDivergence > 0.01 * atr) {
       direction = 1;
       triggerReason = `Internal Reaction Quick Scalp (>200 EMA)`;
-    } else if (isBearTrend && vwmaDivergence < -0.02 * atr) {
+    } else if (isBearTrend && vwmaDivergence < -0.01 * atr) {
       direction = -1;
       triggerReason = `Internal Reaction Quick Scalp (<200 EMA)`;
     } else {
@@ -575,15 +594,14 @@ export function proposeSniperTrade(
 
   // Determine contract mode & fractional precision:
   // For accounts <= $500 or when contractType === 'micro_contract', allow micro-contract scaling (0.001 lot / 0.1 oz).
-  // This allows small $100 accounts to trade safely risking exactly $1.00 on any normal Gold stop.
   const isSmallAccount = state.balance <= 500 || settings.contractType === 'micro_contract';
   const minLot = isSmallAccount ? 0.001 : 0.01;
   const contractMultiplier = 100;
 
-  // Max stop distance allowed by account equity if using minLot:
-  const maxStopDollars = isSmallAccount ? 6.0 : Math.max(2.0, (maxAllowedRiskDollars / (minLot * contractMultiplier)) * 1.5);
+  // Adaptive volatility ceiling: allow up to 3.5x ATR (typically $15-$25 on Gold) without arbitrary rejection
+  const maxStopDollars = Math.min(25.0, Math.max(10.0, 3.5 * atr));
 
-  // 1. TIGHT IMPULSE STOP LOSS (Capital Protection & Small Account Safe Zone)
+  // 1. TIGHT STRUCTURAL STOP LOSS (Capital Protection & Small Account Safe Zone)
   const { stopPrice, refCandleInfo, isSafe } = getImmediateImpulseSL(
     bars, 
     idx, 

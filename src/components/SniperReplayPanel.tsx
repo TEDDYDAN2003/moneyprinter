@@ -18,7 +18,9 @@ import {
   Layers,
   Sparkles,
   BarChart3,
-  BookmarkPlus
+  BookmarkPlus,
+  ArrowRight,
+  MousePointerClick
 } from "lucide-react";
 import { 
   initSniperSimulation, 
@@ -35,7 +37,8 @@ import {
   type SniperState, 
   type SniperPlan,
   type LotSizeMode,
-  type SniperStrategyMode
+  type SniperStrategyMode,
+  type SniperSessionFilter
 } from "@/lib/sniperReplay";
 import { SniperHistoryModal } from "./SniperHistoryModal";
 
@@ -43,6 +46,7 @@ interface Props {
   bars: SniperBar[];
   selected: number;
   onCursor: (i: number | null) => void;
+  onSelectCandidate?: (i: number) => void;
   onClose: () => void;
   onPlan: (plan: SniperPlan | null) => void;
   onStateUpdate: (state: SniperState | null, settings: SniperSettings) => void;
@@ -53,6 +57,7 @@ export function SniperReplayPanel({
   selected,
   onClose,
   onCursor,
+  onSelectCandidate,
   onPlan,
   onStateUpdate
 }: Props) {
@@ -61,6 +66,15 @@ export function SniperReplayPanel({
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
+  // 2-Step Pre-Simulation Workflow: 'pick_candle' -> 'configure'
+  const [setupStep, setSetupStep] = useState<'pick_candle' | 'configure'>('pick_candle');
+  
+  // Default to recent area if selected is 0 or unselected
+  const initialIndex = selected > 14 && selected < bars.length - 2 
+    ? selected 
+    : Math.max(14, bars.length - 120);
+  const [candidateIndex, setCandidateIndex] = useState<number>(initialIndex);
+
   // Settings & Simulation State
   const [settings, setSettings] = useState<SniperSettings>(sniperDefaults);
   const [state, setState] = useState<SniperState | null>(null);
@@ -68,6 +82,21 @@ export function SniperReplayPanel({
   const [speed, setSpeed] = useState(2);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState("");
+
+  // Sync candidate index if user clicks chart directly in pick_candle mode
+  useEffect(() => {
+    if (!state && selected >= 14 && selected < bars.length) {
+      setCandidateIndex(selected);
+    }
+  }, [selected, state]);
+
+  function updateCandidate(newIdx: number) {
+    const clamped = Math.max(14, Math.min(newIdx, bars.length - 2));
+    setCandidateIndex(clamped);
+    if (onSelectCandidate) {
+      onSelectCandidate(clamped);
+    }
+  }
 
   function clamp(x: number, y: number) {
     const panel = panelRef.current;
@@ -141,7 +170,7 @@ export function SniperReplayPanel({
 
   function start() {
     setPlaying(false);
-    const startIdx = Math.max(14, Math.min(selected, bars.length - 2));
+    const startIdx = Math.max(14, Math.min(candidateIndex, bars.length - 2));
     const init = initSniperSimulation(startIdx, bars, settings);
     setState(init);
   }
@@ -176,12 +205,13 @@ export function SniperReplayPanel({
       saveCurrentRun();
     }
     setState(null);
+    setSetupStep('pick_candle');
     onCursor(null);
     onPlan(null);
     onStateUpdate(null, settings);
   }
 
-  const currentIdx = state ? state.index : selected;
+  const currentIdx = state ? state.index : candidateIndex;
   const currentBar = bars[currentIdx];
   const radar = currentBar ? getSniperRadarStatus(bars, currentIdx) : null;
   const sessionInfo = radar ? radar.session : (currentBar ? getKillzoneSession(currentBar.time) : { inKillzone: false, name: "Off-Hours", priority: 0 });
@@ -231,175 +261,333 @@ export function SniperReplayPanel({
         </div>
 
         {!state ? (
-          /* Configuration Screen */
-          <div className="space-y-3">
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              Select your strategy combination, deposit balance, and risk profile. Run simulations and compare performance directly in your browser.
-            </p>
-
-            {/* Strategy Combination Selector */}
-            <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-2.5">
-              <label className="text-[10px] font-semibold text-indigo-300 flex items-center gap-1">
-                <Sparkles size={12} className="text-indigo-400" />
-                Strategy Combination Profile
-              </label>
-              <select
-                value={settings.strategyProfile}
-                onChange={e => setSettings({ ...settings, strategyProfile: e.target.value as SniperStrategyMode })}
-                className="mt-1 w-full rounded border border-indigo-500/40 bg-slate-950 px-2.5 py-1.5 font-sans text-xs text-white font-bold"
-              >
-                <option value="institutional_triad">🎯 Institutional Triad (FVG + VWMA + 200 EMA + Killzone)</option>
-                <option value="vwma_crossover">⚡ VWMA × EMA Zero-Lag Crossover (Volume Momentum)</option>
-                <option value="fvg_displacement">📊 Pure ICT FVG Imbalance Retest (Smart Money Zones)</option>
-                <option value="rapid_internal_scalp">🏹 Rapid Internal Scalp (High-Probability 1.1R - 1.4R)</option>
-              </select>
-              <span className="text-[9px] text-slate-400 block mt-1 leading-snug">
-                {settings.strategyProfile === 'institutional_triad' && 'Highest win rate: combines Killzone timing, 200 EMA macro filter, FVG retest, and VWMA momentum.'}
-                {settings.strategyProfile === 'vwma_crossover' && 'Trades Digital Signal Processed zero-lag volume acceleration crossing the 50 EMA.'}
-                {settings.strategyProfile === 'fvg_displacement' && 'Focuses strictly on Fair Value Gap liquidity retests with impulse invalidation.'}
-                {settings.strategyProfile === 'rapid_internal_scalp' && 'Higher trade frequency taking rapid guaranteed internal reaction scalps.'}
-              </span>
-            </div>
-
-            {/* Deposit & Lot Sizing Mode */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
-                  <DollarSign size={11} className="text-emerald-400" />
-                  Deposit / Balance ($)
-                </label>
-                <input
-                  type="number"
-                  step="500"
-                  min="50"
-                  value={settings.initialBalance}
-                  onChange={e => setSettings({ ...settings, initialBalance: Math.max(50, Number(e.target.value)) })}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-white"
-                />
+          setupStep === 'pick_candle' ? (
+            /* STEP 1: INTERACTIVE START CANDLE SELECTOR */
+            <div className="space-y-3">
+              {/* Step indicator header */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  <MousePointerClick size={13} />
+                  Step 1 of 2 · Pick Start Candle
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  Candle #{candidateIndex + 1} of {bars.length}
+                </span>
               </div>
 
-              <div>
-                <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
-                  <Coins size={11} className="text-amber-400" />
-                  Position Sizing Model
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-2.5">
+                <p className="text-[11px] font-medium text-emerald-200 flex items-center gap-1.5">
+                  <MousePointerClick size={13} className="text-emerald-400" />
+                  Drag the chart &amp; click any candle to start
+                </p>
+                <p className="mt-1 text-[10px] text-slate-400 leading-relaxed">
+                  The simulation runs forward candle-by-candle from your chosen bar with zero future look-ahead.
+                </p>
+              </div>
+
+              {/* Selected Candle Inspector Card */}
+              {currentBar && (
+                <div className="rounded-xl border border-slate-800 bg-[#070c14] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Selected Date &amp; Time</span>
+                      <span className="font-mono text-xs font-bold text-white">
+                        {new Date(currentBar.time * 1000).toISOString().replace("T", " ").slice(0, 16)} UTC
+                      </span>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold border ${
+                      sessionInfo.priority === 1
+                        ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
+                        : sessionInfo.inKillzone
+                        ? "border-indigo-500/40 bg-indigo-500/20 text-indigo-300"
+                        : "border-slate-700 bg-slate-800 text-slate-400"
+                    }`}>
+                      {sessionInfo.name}
+                    </span>
+                  </div>
+
+                  {/* OHLC Stats */}
+                  <div className="grid grid-cols-4 gap-1.5 text-center font-mono text-[10px] bg-slate-900/60 rounded-lg p-2 border border-slate-800/80">
+                    <div>
+                      <span className="text-slate-500 block text-[9px]">Open</span>
+                      <span className="text-slate-300">${currentBar.open.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[9px]">High</span>
+                      <span className="text-emerald-400">${currentBar.high.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[9px]">Low</span>
+                      <span className="text-rose-400">${currentBar.low.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-[9px]">Close</span>
+                      <span className="text-white font-bold">${currentBar.close.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* 5-Rule Live Status Snapshot at Selected Candle */}
+                  {radar && (
+                    <div className="border-t border-slate-800/80 pt-2 space-y-1 text-[10px]">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Macro 200 EMA Gate:</span>
+                        <span className={radar.macroTrend.isBull ? "text-emerald-400 font-semibold" : radar.macroTrend.isBear ? "text-rose-400 font-semibold" : "text-slate-400"}>
+                          {radar.macroTrend.label}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>VWMA Momentum:</span>
+                        <span className={radar.vwma.isBullCross ? "text-emerald-400" : radar.vwma.isBearCross ? "text-rose-400" : "text-slate-400"}>
+                          {radar.vwma.label}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>FVG Retest State:</span>
+                        <span className={radar.fvg.retesting ? "text-amber-400 font-semibold" : "text-slate-500"}>
+                          {radar.fvg.label}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Scrub navigation slider & jump buttons */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Timeline Scrubber</span>
+                  <span className="font-mono">{Math.round((candidateIndex / Math.max(1, bars.length - 1)) * 100)}% through history</span>
+                </div>
+                <input
+                  type="range"
+                  min={14}
+                  max={bars.length - 2}
+                  value={candidateIndex}
+                  onChange={e => updateCandidate(Number(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+
+                <div className="grid grid-cols-5 gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateCandidate(candidateIndex - 100)}
+                    className="rounded bg-slate-900 border border-slate-800 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                  >
+                    -100 bars
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateCandidate(candidateIndex - 10)}
+                    className="rounded bg-slate-900 border border-slate-800 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                  >
+                    -10 bars
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateCandidate(candidateIndex + 10)}
+                    className="rounded bg-slate-900 border border-slate-800 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                  >
+                    +10 bars
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateCandidate(candidateIndex + 100)}
+                    className="rounded bg-slate-900 border border-slate-800 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                  >
+                    +100 bars
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateCandidate(bars.length - 120)}
+                    className="rounded bg-indigo-950/60 border border-indigo-700/60 py-1 text-[10px] font-semibold text-indigo-300 hover:bg-indigo-900"
+                    title="Jump to recent 120 candles"
+                  >
+                    ⚡ Recent
+                  </button>
+                </div>
+              </div>
+
+              {/* Proceed to Step 2 Button */}
+              <button
+                type="button"
+                onClick={() => setSetupStep('configure')}
+                className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 font-bold text-slate-950 shadow-lg shadow-emerald-500/20 hover:brightness-110 active:scale-[0.99] transition flex items-center justify-center gap-2"
+              >
+                <span>Lock Candle &amp; Configure Risk ($)</span>
+                <ArrowRight size={15} />
+              </button>
+            </div>
+          ) : (
+            /* STEP 2: CONFIGURATION & METADATA SCREEN */
+            <div className="space-y-3">
+              {/* Step indicator header & back button */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                  Step 2 of 2 · Deposit &amp; Risk Settings
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSetupStep('pick_candle')}
+                  className="flex items-center gap-1 rounded bg-slate-800/80 hover:bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-300 transition"
+                >
+                  <RotateCcw size={10} />
+                  <span>Change Start Candle</span>
+                </button>
+              </div>
+
+              {/* Locked Start Candle Summary Pill */}
+              {currentBar && (
+                <div className="rounded-lg border border-slate-800 bg-[#070c14] px-3 py-2 flex items-center justify-between text-[10px]">
+                  <div>
+                    <span className="text-slate-500">Starting at: </span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {new Date(currentBar.time * 1000).toISOString().replace("T", " ").slice(0, 16)} UTC
+                    </span>
+                  </div>
+                  <span className="font-mono text-slate-400">
+                    Candle #{candidateIndex + 1}
+                  </span>
+                </div>
+              )}
+
+              {/* Strategy Combination Selector */}
+              <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-2.5">
+                <label className="text-[10px] font-semibold text-indigo-300 flex items-center gap-1">
+                  <Sparkles size={12} className="text-indigo-400" />
+                  Strategy Combination Profile
                 </label>
                 <select
-                  value={settings.lotSizeMode}
-                  onChange={e => setSettings({ ...settings, lotSizeMode: e.target.value as LotSizeMode })}
+                  value={settings.strategyProfile}
+                  onChange={e => setSettings({ ...settings, strategyProfile: e.target.value as SniperStrategyMode })}
+                  className="mt-1 w-full rounded border border-indigo-500/40 bg-slate-950 px-2.5 py-1.5 font-sans text-xs text-white font-bold"
+                >
+                  <option value="institutional_triad">🎯 Institutional Triad (FVG Retest + 200 EMA + VWMA)</option>
+                  <option value="vwma_crossover">⚡ VWMA × EMA Zero-Lag Crossover (Volume Momentum)</option>
+                  <option value="fvg_displacement">📊 Pure ICT FVG Imbalance Retest (Smart Money Zones)</option>
+                  <option value="rapid_internal_scalp">🏹 Rapid Internal Scalp (High-Probability 1.0R - 1.25R)</option>
+                </select>
+                <span className="text-[9px] text-slate-400 block mt-1 leading-snug">
+                  {settings.strategyProfile === 'institutional_triad' && 'Combines 200 EMA macro filter, active/recent FVG mitigation, and volume alignment.'}
+                  {settings.strategyProfile === 'vwma_crossover' && 'Trades Digital Signal Processed zero-lag volume acceleration crossing the 50 EMA.'}
+                  {settings.strategyProfile === 'fvg_displacement' && 'Focuses strictly on Fair Value Gap liquidity retests with impulse invalidation.'}
+                  {settings.strategyProfile === 'rapid_internal_scalp' && 'Higher trade frequency taking rapid guaranteed internal reaction scalps.'}
+                </span>
+              </div>
+
+              {/* Session Filter */}
+              <div>
+                <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                  <Clock size={11} className="text-cyan-400" />
+                  Session Filter Mode
+                </label>
+                <select
+                  value={settings.sessionFilter}
+                  onChange={e => setSettings({ ...settings, sessionFilter: e.target.value as SniperSessionFilter })}
                   className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
                 >
-                  <option value="risk_pct">Dynamic Risk % (Safe)</option>
-                  <option value="fixed_lots">Fixed Lot Size</option>
+                  <option value="all_sessions">All Sessions (London, NY, Asia - No Moves Missed)</option>
+                  <option value="killzone_only">Strict Killzones Only (07:00-10:00 &amp; 12:00-17:00 UTC)</option>
+                  <option value="overlap_only">London/NY Overlap Only (12:00-15:00 UTC · Highest Edge)</option>
                 </select>
               </div>
-            </div>
 
-            {/* Risk % OR Fixed Lots Input + Gold Spread */}
-            <div className="grid grid-cols-2 gap-2">
-              {settings.lotSizeMode === 'risk_pct' ? (
+              {/* Deposit & Sizing Model */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                    <DollarSign size={11} className="text-emerald-400" />
+                    Deposit Balance ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="50"
+                    min="50"
+                    value={settings.initialBalance}
+                    onChange={e => setSettings({ ...settings, initialBalance: Math.max(50, Number(e.target.value)) })}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-white font-bold"
+                  />
+                  <span className="text-[9px] text-slate-500">e.g. $100, $500, $1,000</span>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                    <Coins size={11} className="text-amber-400" />
+                    Contract &amp; Sizing Mode
+                  </label>
+                  <select
+                    value={settings.contractType}
+                    onChange={e => setSettings({ ...settings, contractType: e.target.value as any })}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="micro_contract">Micro-Units (0.001 lot · Exact 1% Risk)</option>
+                    <option value="standard_contract">Standard (0.01 min lot)</option>
+                  </select>
+                  <span className="text-[9px] text-slate-500">
+                    {settings.contractType === 'micro_contract' ? 'Perfect for small accounts <= $500' : 'Standard 100 oz broker lot'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Risk % Input + Gold Spread */}
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] font-medium text-slate-400">Risk Per Trade (%)</label>
                   <input
                     type="number"
                     step="0.25"
                     min="0.1"
-                    max="10"
+                    max="5.0"
                     value={settings.riskPct}
                     onChange={e => setSettings({ ...settings, riskPct: Number(e.target.value) })}
                     className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-emerald-400 font-bold"
                   />
-                  <span className="text-[9px] text-slate-500">
-                    ≈ ${(settings.initialBalance * (settings.riskPct / 100)).toFixed(0)} risk (max 2% cap)
+                  <span className="text-[9px] text-slate-400">
+                    Exact ${(settings.initialBalance * (settings.riskPct / 100)).toFixed(2)} risk on ${settings.initialBalance}
                   </span>
                 </div>
-              ) : (
+
                 <div>
-                  <label className="text-[10px] font-medium text-slate-400">Fixed Lot Size (Lots)</label>
+                  <label className="text-[10px] font-medium text-slate-400">Gold Spread ($/oz)</label>
                   <input
                     type="number"
                     step="0.05"
-                    min="0.01"
-                    max="50"
-                    value={settings.fixedLots}
-                    onChange={e => setSettings({ ...settings, fixedLots: Number(e.target.value) })}
-                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-amber-400 font-bold"
+                    min="0.05"
+                    max="5.0"
+                    value={settings.spreadDollars}
+                    onChange={e => setSettings({ ...settings, spreadDollars: Number(e.target.value) })}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-white"
                   />
-                  <span className="text-[9px] text-slate-500">
-                    Min 0.01 lot (100 oz/lot)
-                  </span>
+                  <span className="text-[9px] text-slate-500">Default $0.25 (2.5 pips)</span>
                 </div>
-              )}
+              </div>
 
-              <div>
-                <label className="text-[10px] font-medium text-slate-400">Gold Spread ($/oz)</label>
+              {/* Focus on Small Wins Toggle */}
+              <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2">
                 <input
-                  type="number"
-                  step="0.05"
-                  min="0.05"
-                  max="5.0"
-                  value={settings.spreadDollars}
-                  onChange={e => setSettings({ ...settings, spreadDollars: Number(e.target.value) })}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-white"
+                  type="checkbox"
+                  id="focusSmallWins"
+                  checked={settings.focusSmallWins}
+                  onChange={e => setSettings({ ...settings, focusSmallWins: e.target.checked })}
+                  className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20"
                 />
-                <span className="text-[9px] text-slate-500">Default $0.25 (2.5 pips)</span>
-              </div>
-            </div>
-
-            {/* Daily Quota & Min RR */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] font-medium text-slate-400">Max Trades / Day (Cap)</label>
-                <select
-                  value={settings.maxTradesPerDay}
-                  onChange={e => setSettings({ ...settings, maxTradesPerDay: Number(e.target.value) })}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
-                >
-                  <option value={1}>Max 1 Trade/Day</option>
-                  <option value={2}>Max 2 Trades/Day (Standard)</option>
-                  <option value={3}>Max 3 Trades/Day</option>
-                </select>
-                <span className="text-[9px] text-slate-500 block">Never forces if no setup</span>
+                <label htmlFor="focusSmallWins" className="text-[10px] text-slate-300 cursor-pointer">
+                  <span className="font-semibold text-emerald-300">
+                    Focus on Small Guaranteed Wins (1.0R - 1.25R)
+                  </span>
+                  <span className="block text-slate-500">Protects small accounts from reversals &amp; achieves rapid accumulation</span>
+                </label>
               </div>
 
-              <div>
-                <label className="text-[10px] font-medium text-slate-400">Target Min RR</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="1.0"
-                  max="6.0"
-                  value={settings.minRR}
-                  onChange={e => setSettings({ ...settings, minRR: Number(e.target.value) })}
-                  className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-white"
-                />
-                <span className="text-[9px] text-slate-500 block">1.2R safe scalp target</span>
-              </div>
+              {/* Launch Replay Button */}
+              <button
+                type="button"
+                onClick={start}
+                className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 font-bold text-slate-950 shadow-lg shadow-emerald-500/20 hover:brightness-110 active:scale-[0.99] transition"
+              >
+                🚀 Launch Sniper Replay
+              </button>
             </div>
-
-            <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2">
-              <input
-                type="checkbox"
-                id="overlapOnly"
-                checked={settings.allowOverlapOnly}
-                onChange={e => setSettings({ ...settings, allowOverlapOnly: e.target.checked })}
-                className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500/20"
-              />
-              <label htmlFor="overlapOnly" className="text-[10px] text-slate-300 cursor-pointer">
-                <span className="flex items-center gap-1 font-semibold text-amber-300">
-                  <Flame size={12} />
-                  Strict London/NY Overlap Only (12-15 UTC)
-                </span>
-                <span className="block text-slate-500">Highest statistical edge (95.7% accuracy in audit)</span>
-              </label>
-            </div>
-
-            <button
-              onClick={start}
-              className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 font-bold text-slate-950 shadow-lg shadow-emerald-500/20 hover:brightness-110 active:scale-[0.99] transition"
-            >
-              Launch Sniper Replay
-            </button>
-          </div>
+          )
         ) : (
           /* Active Replay Controls & Rule Radar */
           <div className="space-y-2.5">

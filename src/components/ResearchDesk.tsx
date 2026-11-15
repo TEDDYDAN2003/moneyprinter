@@ -1339,6 +1339,7 @@ export function ResearchDesk() {
                   <SniperReplayPanel
                     bars={data.candles}
                     selected={selected}
+                    onSelectCandidate={setSelected}
                     onCursor={sniperCursorChanged}
                     onPlan={setSniperPlan}
                     onStateUpdate={(st, setts) => {
