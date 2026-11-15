@@ -1,3 +1,4 @@
+import {proposeTriad, stepTriad} from './triadResearch';
 /**
  * Institutional Sniper Backtest Engine for XAU/USD (Gold)
  * 
@@ -119,6 +120,7 @@ export interface SniperOutcome {
   spreadPaid: number;
   balanceAfter: number;
   session: string;
+  reason?: string;
 }
 
 export interface SniperState {
@@ -497,6 +499,7 @@ export function proposeSniperTrade(
   settings: SniperSettings,
   state: SniperState
 ): SniperPlan | null {
+  if ((settings.strategyProfile || 'institutional_triad') === 'institutional_triad') return proposeTriad(bars, idx, settings, state);
   if (idx < 14 || idx >= bars.length) return null;
 
   // RULE 1: Session Law & Daily Trade Quota Check
@@ -721,6 +724,7 @@ export function stepSniperSimulation(
   bars: SniperBar[],
   settings: SniperSettings
 ): SniperState {
+  if ((settings.strategyProfile || 'institutional_triad') === 'institutional_triad') return stepTriad(state, bars, settings);
   const nextIdx = state.index + 1;
   if (nextIdx >= bars.length) {
     return { ...state, status: 'End of loaded history reached.' };
@@ -1008,7 +1012,7 @@ export function initSniperSimulation(
     ...initial,
     activePlan: initialPlan,
     status: initialPlan
-      ? `Initial setup: ${initialPlan.direction === 1 ? 'BUY' : 'SELL'} limit at $${initialPlan.entry.toFixed(2)} (${initialPlan.lots} lots) [Risk: ${initialPlan.riskPctOfEquity}%]`
+      ? `Initial setup: ${initialPlan.direction === 1 ? 'BUY' : 'SELL'} ${settings.strategyProfile === 'institutional_triad' ? 'next-open market estimate' : 'limit'} at $${initialPlan.entry.toFixed(2)} (${initialPlan.lots} lots) [Risk: ${initialPlan.riskPctOfEquity}%]`
       : initial.status,
   };
 }

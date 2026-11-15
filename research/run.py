@@ -51,7 +51,10 @@ def oanda(minutes,count,before=None,allow_empty=False):
             t=int(datetime.fromisoformat(c['time'].replace('Z','+00:00')).timestamp())
             if oldest is None or t<oldest:oldest,oldest_raw=t,c['time']
             if not c.get('complete') or not c.get('mid') or (before is not None and t>=before):continue
-            q=c['mid'];rows_by_time[t]={'time':t,'open':float(q['o']),'high':float(q['h']),'low':float(q['l']),'close':float(q['c'])}
+            q=c['mid'];row={'time':t,'open':float(q['o']),'high':float(q['h']),'low':float(q['l']),'close':float(q['c'])}
+            # OANDA volume is the number of quoted prices, not traded quantity.
+            if isinstance(c.get('volume'),int) and c['volume']>=0:row['volume']=c['volume']
+            rows_by_time[t]=row
         if oldest_raw is None or oldest_raw==cursor or len(rows_by_time)==previous_count:break
         cursor=oldest_raw
     rows=sorted(rows_by_time.values(),key=lambda x:x['time'])[-count:]
@@ -68,7 +71,9 @@ def aggregate_bars(bars, source_minutes):
     for start,group in sorted(buckets.items()):
         group.sort(key=lambda x:x['time'])
         if len(group)!=3 or [x['time'] for x in group]!=[start,start+step,start+2*step]:continue
-        out.append({'time':start,'open':group[0]['open'],'high':max(x['high'] for x in group),'low':min(x['low'] for x in group),'close':group[-1]['close']})
+        row={'time':start,'open':group[0]['open'],'high':max(x['high'] for x in group),'low':min(x['low'] for x in group),'close':group[-1]['close']}
+        if all(isinstance(x.get('volume'),int) and x['volume']>=0 for x in group):row['volume']=sum(x['volume'] for x in group)
+        out.append(row)
     return out
 
 def aggregate_45(bars):

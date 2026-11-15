@@ -78,7 +78,7 @@ export function SniperReplayPanel({
   const [candidateIndex, setCandidateIndex] = useState<number>(initialIndex);
 
   // Settings & Simulation State
-  const [settings, setSettings] = useState<SniperSettings>(sniperDefaults);
+  const [settings, setSettings] = useState<SniperSettings>({ ...sniperDefaults, initialBalance: 1000, lotSizeMode: "fixed_lots", fixedLots: 0.05, riskPct: 2, contractType: "standard_contract", sessionFilter: "killzone_only" });
   const [state, setState] = useState<SniperState | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(2);
@@ -460,7 +460,7 @@ export function SniperReplayPanel({
                 </label>
                 <select
                   value={settings.strategyProfile}
-                  onChange={e => setSettings({ ...settings, strategyProfile: e.target.value as SniperStrategyMode })}
+                  onChange={e => setSettings({ ...settings, strategyProfile: e.target.value as SniperStrategyMode, ...(e.target.value === "institutional_triad" ? { executionType: "market", contractType: "standard_contract" } : {}) })}
                   className="mt-1 w-full rounded border border-indigo-500/40 bg-slate-950 px-2.5 py-1.5 font-sans text-xs text-white font-bold"
                 >
                   <option value="institutional_triad">🎯 Institutional Triad (FVG Retest + 200 EMA + VWMA)</option>
@@ -469,10 +469,10 @@ export function SniperReplayPanel({
                   <option value="rapid_internal_scalp">🏹 Rapid Internal Scalp (High-Probability 1.0R - 1.25R)</option>
                 </select>
                 <span className="text-[9px] text-slate-400 block mt-1 leading-snug">
-                  {settings.strategyProfile === 'institutional_triad' && 'Combines 200 EMA macro filter, active/recent FVG mitigation, and volume alignment.'}
+                  {settings.strategyProfile === 'institutional_triad' && 'Experimental: No-Wick internal trend + 200 EMA alignment, first FVG retest OR tick-VWMA/200 EMA reaction, confirmed directional close and protected swing stop. No trade without tick volume. Outlier pause is not a CPI/PPI calendar.'}
                   {settings.strategyProfile === 'vwma_crossover' && 'Trades Digital Signal Processed zero-lag volume acceleration crossing the 50 EMA.'}
                   {settings.strategyProfile === 'fvg_displacement' && 'Focuses strictly on Fair Value Gap liquidity retests with impulse invalidation.'}
-                  {settings.strategyProfile === 'rapid_internal_scalp' && 'Higher trade frequency taking rapid guaranteed internal reaction scalps.'}
+                  {settings.strategyProfile === 'rapid_internal_scalp' && 'Frequent internal reaction scalp research; outcomes are not guaranteed.'}
                 </span>
               </div>
 
@@ -504,8 +504,8 @@ export function SniperReplayPanel({
                     onChange={e => setSettings({ ...settings, executionType: e.target.value as SniperExecutionType })}
                     className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white font-semibold"
                   >
-                    <option value="market">⚡ Market (Instant Fill)</option>
-                    <option value="limit">🎯 Limit (Retest Touch)</option>
+                    <option value="market">⚡ Market (next candle open)</option>
+                    <option value="limit" disabled={settings.strategyProfile === "institutional_triad"}>🎯 Limit (Retest Touch)</option>
                   </select>
                 </div>
               </div>
@@ -538,7 +538,7 @@ export function SniperReplayPanel({
                     onChange={e => setSettings({ ...settings, contractType: e.target.value as any })}
                     className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
                   >
-                    <option value="micro_contract">Micro-Units (0.001 lot · Exact 1% Risk)</option>
+                    <option value="micro_contract" disabled={settings.strategyProfile === "institutional_triad"}>Micro-Units (other profiles only)</option>
                     <option value="standard_contract">Standard (0.01 min lot)</option>
                   </select>
                   <span className="text-[9px] text-slate-500">
@@ -546,6 +546,8 @@ export function SniperReplayPanel({
                   </span>
                 </div>
               </div>
+
+              {settings.strategyProfile === "institutional_triad" && <div className="text-[10px] text-slate-300">Maximum lots <input type="number" min="0.01" step="0.01" value={settings.fixedLots} onChange={e => setSettings({ ...settings, lotSizeMode: "fixed_lots", fixedLots: Math.max(0.01, Number(e.target.value)) })} className="ml-2 w-20 rounded bg-slate-950 p-1 text-white" /> <span className="text-slate-400">Reduced or skipped to respect the planned risk cap; standard 100 oz/lot assumed.</span></div>}
 
               {/* Risk % Input + Gold Spread */}
               <div className="grid grid-cols-2 gap-2">
@@ -555,13 +557,13 @@ export function SniperReplayPanel({
                     type="number"
                     step="0.25"
                     min="0.1"
-                    max="5.0"
+                    max="2.0"
                     value={settings.riskPct}
-                    onChange={e => setSettings({ ...settings, riskPct: Number(e.target.value) })}
+                    onChange={e => setSettings({ ...settings, riskPct: Math.min(2, Math.max(0.1, Number(e.target.value))) })}
                     className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-xs text-emerald-400 font-bold"
                   />
                   <span className="text-[9px] text-slate-400">
-                    Exact ${(settings.initialBalance * (settings.riskPct / 100)).toFixed(2)} risk on ${settings.initialBalance}
+                    Planned cap ${(settings.initialBalance * (settings.riskPct / 100)).toFixed(2)} risk on ${settings.initialBalance}
                   </span>
                 </div>
 
@@ -591,7 +593,7 @@ export function SniperReplayPanel({
                 />
                 <label htmlFor="focusSmallWins" className="text-[10px] text-slate-300 cursor-pointer">
                   <span className="font-semibold text-emerald-300">
-                    Focus on Small Guaranteed Wins (1.0R - 1.25R)
+                    Small target preference (not guaranteed)
                   </span>
                   <span className="block text-slate-500">Protects small accounts from reversals &amp; achieves rapid accumulation</span>
                 </label>
@@ -684,6 +686,7 @@ export function SniperReplayPanel({
                 </div>
                 <select
                   value={settings.strategyProfile}
+                  disabled={!!state}
                   onChange={e => {
                     const updated = { ...settings, strategyProfile: e.target.value as SniperStrategyMode };
                     setSettings(updated);
@@ -698,8 +701,8 @@ export function SniperReplayPanel({
                 </select>
               </div>
 
-              {/* Real-time 5-Rule Radar Readings */}
-              <div className="mt-2 space-y-1.5 text-[10px]">
+              {/* Legacy radar does not represent the experimental Triad rules. */}
+              {settings.strategyProfile === "institutional_triad" ? <p className="mt-2 text-[10px] text-amber-300">Experimental Triad: see the setup reason and status for rule checks. Outlier pause cannot anticipate CPI/PPI. No live-order execution.</p> : <div className="mt-2 space-y-1.5 text-[10px]">
                 {/* Rule 1: Killzone */}
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1 text-slate-400">
@@ -754,7 +757,7 @@ export function SniperReplayPanel({
                     {state.todayTradesCount} / {settings.maxTradesPerDay} (Zero Forced)
                   </span>
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         )}

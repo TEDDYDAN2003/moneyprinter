@@ -105,3 +105,15 @@ class IncrementalHistoryTests(unittest.TestCase):
     settings=json.loads(db.execute('select settings from runs where id=?',(next['runId'],)).fetchone()[0])
    db.close()
    self.assertEqual(settings['threshold'],72)
+
+class TickVolumeTests(unittest.TestCase):
+ def test_tick_volume_is_preserved_when_present(self):
+  def mock(req,timeout):return Reply([{'time':'2025-01-01T00:00:00Z','complete':True,'volume':123,'mid':{'o':'10','h':'11','l':'9','c':'10'}}])
+  with patch.dict('os.environ',{'OANDA_API_TOKEN':'fake'}),patch('urllib.request.urlopen',mock):
+   self.assertEqual(oanda(15,1)[0]['volume'],123)
+ def test_aggregate_volume_requires_all_three_bars(self):
+  from run import aggregate_bars
+  bars=[{'time':i*60,'open':1,'high':2,'low':0,'close':1,'volume':i+1} for i in range(3)]
+  self.assertEqual(aggregate_bars(bars,1)[0]['volume'],6)
+  del bars[1]['volume']
+  self.assertNotIn('volume',aggregate_bars(bars,1)[0])

@@ -62,7 +62,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
                   {settings.strategyProfile === 'vwma_crossover' ? 'VWMA CROSS' : settings.strategyProfile === 'fvg_displacement' ? 'ICT FVG' : settings.strategyProfile === 'rapid_internal_scalp' ? 'RAPID SCALP' : 'TRIAD CONFLUENCE'}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400">5 Rules Radar · 1-2 Trades/Day Max</p>
+              <p className="text-[10px] text-slate-400">Research only · estimates, not live fills</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -89,7 +89,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
             {/* Real-time Balance & Net P&L Hero Card */}
             <div className="mt-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950 p-3">
               <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-medium text-slate-400">Account Equity</span>
+                <span className="text-[11px] font-medium text-slate-400">Closed Balance</span>
                 <span className={`flex items-center text-xs font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
                   {isProfit ? <TrendingUp size={13} className="mr-1 inline" /> : <TrendingDown size={13} className="mr-1 inline" />}
                   {isProfit ? "+" : ""}${stats.netDollars.toFixed(2)} ({isProfit ? "+" : ""}{stats.netReturnPct.toFixed(2)}%)
@@ -110,7 +110,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
               <div className="rounded-xl border border-slate-800/90 bg-slate-900/50 p-2.5 text-center">
                 <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400">
                   <Percent size={11} className="text-cyan-400" />
-                  <span>Win Rate</span>
+                  <span>Win rate (ambiguous as loss)</span>
                 </div>
                 <div className="mt-1 font-mono text-base font-bold text-white">
                   {stats.totalTrades > 0 ? `${stats.winRate}%` : "—"}
@@ -138,7 +138,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
               <div className="rounded-xl border border-slate-800/90 bg-slate-900/50 p-2.5 text-center">
                 <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-slate-400">
                   <ShieldAlert size={11} className="text-rose-400" />
-                  <span>Max DD</span>
+                  <span>Max closed-balance DD</span>
                 </div>
                 <div className="mt-1 font-mono text-base font-bold text-rose-300">
                   {state.maxDrawdownPct > 0 ? `-${state.maxDrawdownPct.toFixed(1)}%` : "0.0%"}
@@ -159,7 +159,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
                       {p.setupType === 'EXPANSION_RUNNER' ? '🚀 RUNNER' : 'SCALP'}
                     </span>
                     <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${p.direction === 1 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                      {p.filledIndex !== null ? "FILLED" : "LIMIT"}
+                      {p.filledIndex !== null ? "FILLED" : "PENDING"}
                     </span>
                   </div>
                 ) : (
@@ -208,6 +208,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
                     <span>Lots: <b className="text-white font-mono">{p.lots} lots</b> (100 oz/lot)</span>
                     <span>RR: <b className="text-emerald-400 font-mono">{p.rr}R</b></span>
                   </div>
+                  <div className="text-[10px] text-slate-400 break-words">{p.reason}</div>
                   <div className="text-[10px] text-slate-400 truncate">
                     Session: <span className="text-amber-300 font-semibold">{p.session}</span> · Spread: <span className="text-slate-300 font-mono">${settings.spreadDollars}/oz</span>
                   </div>
@@ -248,7 +249,7 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
                           <span className="font-bold text-white">
                             {o.direction === 1 ? "BUY" : "SELL"}
                           </span>
-                          <span className="text-[9px] text-slate-500 truncate max-w-[90px]">{o.session}</span>
+                          <span className="text-[9px] text-slate-500 truncate max-w-[90px]" title={o.reason}>{o.outcome === "ambiguous" ? "ambiguous" : o.session}</span>
                         </div>
                         <div className="text-right font-mono">
                           <span className={o.outcome === "win" ? "font-bold text-emerald-400" : "font-bold text-rose-400"}>
