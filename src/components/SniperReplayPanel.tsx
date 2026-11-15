@@ -200,6 +200,14 @@ export function SniperReplayPanel({
     setTimeout(() => setSavedNotice(""), 2500);
   }
 
+  function downloadDecisionLog() {
+    const rows = state?.decisionLog || [];
+    const keys = ['session','daily_limit','volume','atr','outlier_guard','contiguous','internal_trend','ema_alignment','protected_swing','directional_close','entry_trigger','fvg_retest','ma_reaction','pullback_continuation','sweep_reclaim','stop_valid','lot_valid'];
+    const csv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const data = [['decision_time_utc','candle_open_utc','status','direction','mode','blocked','close','entry','stop','target','lots',...keys], ...rows.map(r => [new Date(r.time*1000).toISOString(),new Date(r.candleTime*1000).toISOString(),r.status,r.direction,r.mode,r.blocked.join('; '),r.close,r.entry,r.stop,r.target,r.lots,...keys.map(k => r.checks[k] ?? '')])].map(row => row.map(csv).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([data],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='triad-decisions.csv';link.click();URL.revokeObjectURL(url);
+  }
+
   function reset() {
     setPlaying(false);
     // Auto-save run if trades were completed
@@ -469,7 +477,7 @@ export function SniperReplayPanel({
                   <option value="rapid_internal_scalp">🏹 Rapid Internal Scalp (High-Probability 1.0R - 1.25R)</option>
                 </select>
                 <span className="text-[9px] text-slate-400 block mt-1 leading-snug">
-                  {settings.strategyProfile === 'institutional_triad' && 'Experimental: No-Wick internal trend + 200 EMA alignment, first FVG retest OR tick-VWMA/200 EMA reaction, confirmed directional close and protected swing stop. No trade without tick volume. Outlier pause is not a CPI/PPI calendar.'}
+                  {settings.strategyProfile === 'institutional_triad' && 'Experimental: No-Wick internal trend + 200 EMA alignment and tick-VWMA/200 EMA reaction with directional close and protected swing stop. FVG retest is logged but not required. No trade without tick volume. Outlier pause is not a CPI/PPI calendar.'}
                   {settings.strategyProfile === 'vwma_crossover' && 'Trades Digital Signal Processed zero-lag volume acceleration crossing the 50 EMA.'}
                   {settings.strategyProfile === 'fvg_displacement' && 'Focuses strictly on Fair Value Gap liquidity retests with impulse invalidation.'}
                   {settings.strategyProfile === 'rapid_internal_scalp' && 'Frequent internal reaction scalp research; outcomes are not guaranteed.'}
@@ -675,6 +683,13 @@ export function SniperReplayPanel({
               </div>
             )}
 
+            {settings.strategyProfile === 'institutional_triad' && state.decisionLog && <details className="rounded-xl border border-slate-700 bg-slate-950 p-2 text-[10px] text-slate-300">
+              <summary className="cursor-pointer font-semibold text-cyan-300">Decision checklist &amp; near misses ({state.decisionLog.length})</summary>
+              <p className="mt-1 text-slate-400">Latest completed candle, not a forecast. Unknown checks are not passes. Log retains the latest 5,000 decisions{state.decisionLogDropped ? `; ${state.decisionLogDropped} earlier rows omitted` : ''}.</p>
+              {state.decisionLog.length > 0 && <div className="mt-1 space-y-1">{(() => {const d=state.decisionLog![state.decisionLog!.length-1];return <><div>{new Date(d.time*1000).toISOString().slice(0,16).replace('T',' ')} UTC · {d.status} · {d.direction===1?'bull':d.direction===-1?'bear':'neutral'}</div><div className="text-amber-300">{d.blocked.length ? `Blocked: ${d.blocked.join(', ')}` : 'Checklist passes'}</div><div className="grid grid-cols-2 gap-x-2">{Object.entries(d.checks).map(([name,value]) => <div key={name} className={value===null?'text-slate-500':value?'text-emerald-300':'text-rose-300'}>{name.replaceAll('_',' ')}: {value===null?'not evaluated':value?'yes':'no'}</div>)}</div></>;})()}</div>}
+              <button type="button" onClick={downloadDecisionLog} className="mt-2 rounded border border-cyan-700 px-2 py-1 text-cyan-200">Download decision CSV</button>
+            </details>}
+
             {/* Live Rules Radar Box */}
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-2.5">
               <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-slate-800">
@@ -702,7 +717,7 @@ export function SniperReplayPanel({
               </div>
 
               {/* Legacy radar does not represent the experimental Triad rules. */}
-              {settings.strategyProfile === "institutional_triad" ? <p className="mt-2 text-[10px] text-amber-300">Experimental Triad: see the setup reason and status for rule checks. Outlier pause cannot anticipate CPI/PPI. No live-order execution.</p> : <div className="mt-2 space-y-1.5 text-[10px]">
+              {settings.strategyProfile === "institutional_triad" ? <p className="mt-2 text-[10px] text-amber-300">Experimental Triad: FVG is recorded but not a trade requirement. Outlier pause cannot anticipate CPI/PPI. No live-order execution.</p> : <div className="mt-2 space-y-1.5 text-[10px]">
                 {/* Rule 1: Killzone */}
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1 text-slate-400">

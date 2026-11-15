@@ -1,4 +1,4 @@
-import {proposeTriad, stepTriad} from './triadResearch';
+import {proposeTriad, stepTriad, assessTriad, decisionRow, triadFeatures, type TriadMode, type TriadDecisionRow} from './triadResearch';
 /**
  * Institutional Sniper Backtest Engine for XAU/USD (Gold)
  * 
@@ -45,6 +45,7 @@ export type SniperStrategyMode =
   | 'rapid_internal_scalp';   // High-Probability Internal Reaction Scalp
 
 export interface SniperSettings {
+  triadMode?: TriadMode; // research entry trigger; default MA reaction records FVG but does not require it
   initialBalance: number;      // Deposit / Account equity, e.g. $100, $500, $1,000, $10,000
   lotSizeMode: LotSizeMode;    // 'risk_pct' (dynamic) or 'fixed_lots'
   contractType: ContractType;  // 'micro_contract' (min 0.001 lot) or 'standard_contract' (min 0.01 lot)
@@ -124,6 +125,8 @@ export interface SniperOutcome {
 }
 
 export interface SniperState {
+  decisionLog?: TriadDecisionRow[];
+  decisionLogDropped?: number;
   index: number;
   balance: number;
   peakBalance: number;
@@ -1008,8 +1011,11 @@ export function initSniperSimulation(
   };
 
   const initialPlan = proposeSniperTrade(bars, startIndex, settings, initial);
+  const firstDecision = settings.strategyProfile === 'institutional_triad' && bar ? decisionRow(assessTriad(bars,startIndex,settings,initial),bar,triadFeatures(bars)[startIndex].duration,false) : null;
   return {
     ...initial,
+    decisionLog: firstDecision ? [firstDecision] : undefined,
+    decisionLogDropped: 0,
     activePlan: initialPlan,
     status: initialPlan
       ? `Initial setup: ${initialPlan.direction === 1 ? 'BUY' : 'SELL'} ${settings.strategyProfile === 'institutional_triad' ? 'next-open market estimate' : 'limit'} at $${initialPlan.entry.toFixed(2)} (${initialPlan.lots} lots) [Risk: ${initialPlan.riskPctOfEquity}%]`

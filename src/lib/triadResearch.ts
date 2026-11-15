@@ -31,28 +31,41 @@ export function firstRetest(bars:SniperBar[],idx:number,dir:1|-1):boolean {
   if(valid&&b.low<=high&&b.high>=low&&(dir===1?b.close>=low:b.close<=high))return true;
  }return false;
 }
-export function proposeTriad(bars:SniperBar[],idx:number,s:SniperSettings,state:SniperState):SniperPlan|null {
- if(idx<220||idx>=bars.length||s.executionType==='limit')return null;
- const b=bars[idx],f=triadFeatures(bars)[idx],date=new Date((b.time+f.duration)*1000).toISOString().slice(0,10);
- if(date===state.todayDate&&state.todayTradesCount>=s.maxTradesPerDay)return null;
- const session=getKillzoneSession(b.time+f.duration);if(s.sessionFilter==='killzone_only'&&!session.inKillzone)return null;if(s.sessionFilter==='overlap_only'&&session.priority!==1)return null;
- if(b.time+f.duration<f.shockUntil||f.vwma===null||f.atr<=0)return null;
- // Prevent a gap from being treated as a continuous 3-candle structure.
- if(idx>=2&&(b.time-bars[idx-1].time!==f.duration||bars[idx-1].time-bars[idx-2].time!==f.duration))return null;
- const dir:1|-1=f.trend===1?1:-1;if(!f.trend||(dir===1?b.close<=f.ema:b.close>=f.ema))return null;
- const swing=dir===1?f.protectedLow:f.protectedHigh;if(swing===null)return null;
- const retest=firstRetest(bars,idx,dir);
- const maReaction=dir===1?((b.low<=f.vwma&&b.close>f.vwma)||(b.low<=f.ema&&b.close>f.ema)):((b.high>=f.vwma&&b.close<f.vwma)||(b.high>=f.ema&&b.close<f.ema));
- if(!(retest||maReaction)||(dir===1?b.close<=b.open:b.close>=b.open))return null;
- const stop=Number((swing-dir*Math.max(.20,s.stopBufferAtr*f.atr)).toFixed(2));
- const ref=b.close+dir*s.spreadDollars/2,dist=dir*(ref-stop); if(dist<=0||dist>25)return null;
- const maxRisk=state.balance*Math.min(2,Math.max(.1,s.riskPct))/100;
- const requested=s.lotSizeMode==='fixed_lots'?s.fixedLots:Infinity;
- const lots=Math.floor(Math.min(requested,maxRisk/(dist*100))*100+1e-8)/100;
- if(lots<.01)return null;
+export type TriadMode = 'ma_or_fvg' | 'ma' | 'continuation' | 'sweep' | 'fvg' | 'ma_and_sweep' | 'ma_and_continuation' | 'continuation_or_sweep';
+export type TriadDecision = {time:number; direction:number; checks:Record<string,boolean|null>; blocked:string[]; mode:TriadMode; plan:SniperPlan|null};
+export type TriadDecisionRow = {time:number; candleTime:number; status:'signal'|'blocked'|'position-active'; direction:number; mode:TriadMode; checks:Record<string,boolean|null>; blocked:string[]; close:number; entry:number|null; stop:number|null; target:number|null; lots:number|null};
+export function decisionRow(a:TriadDecision,b:SniperBar,duration:number,active:boolean):TriadDecisionRow { return {time:b.time+duration,candleTime:b.time,status:active?'position-active':a.plan?'signal':'blocked',direction:a.direction,mode:a.mode,checks:a.checks,blocked:active?['position-or-order-active',...a.blocked]:a.blocked,close:b.close,entry:a.plan?.entry??null,stop:a.plan?.stop??null,target:a.plan?.target??null,lots:a.plan?.lots??null}; }
+/** Decision-time checklist: null means a confluence is not evaluable, not a pass. */
+export function assessTriad(bars:SniperBar[],idx:number,s:SniperSettings,state:SniperState):TriadDecision {
+ const mode=s.triadMode||'ma', b=bars[idx];const checks:Record<string,boolean|null>={};const blocked:string[]=[];
+ const answer=(plan:SniperPlan|null,dir=0):TriadDecision=>({time:b?.time||0,direction:dir,checks,blocked,mode,plan});
+ if(!b||idx<220||s.executionType==='limit'){blocked.push('warmup, data, or unsupported limit');return answer(null);}
+ const f=triadFeatures(bars)[idx],date=new Date((b.time+f.duration)*1000).toISOString().slice(0,10),session=getKillzoneSession(b.time+f.duration);
+ checks.session=s.sessionFilter==='killzone_only'?session.inKillzone:s.sessionFilter==='overlap_only'?session.priority===1:true;
+ checks.daily_limit=!(date===state.todayDate&&state.todayTradesCount>=s.maxTradesPerDay);
+ checks.volume=f.vwma!==null;checks.atr=f.atr>0;checks.outlier_guard=b.time+f.duration>=f.shockUntil;
+ checks.contiguous=idx>=2&&b.time-bars[idx-1].time===f.duration&&bars[idx-1].time-bars[idx-2].time===f.duration;
+ const dir:1|-1=f.trend===1?1:-1;checks.internal_trend=f.trend!==0;checks.ema_alignment=!!f.trend&&(dir===1?b.close>f.ema:b.close<f.ema);
+ const swing=dir===1?f.protectedLow:f.protectedHigh;checks.protected_swing=swing!==null;
+ checks.directional_close=!!f.trend&&(dir===1?b.close>b.open:b.close<b.open);
+ checks.fvg_retest=f.trend!==0?firstRetest(bars,idx,dir):null;
+ checks.ma_reaction=f.trend!==0&&f.vwma!==null?(dir===1?((b.low<=f.vwma&&b.close>f.vwma)||(b.low<=f.ema&&b.close>f.ema)):((b.high>=f.vwma&&b.close<f.vwma)||(b.high>=f.ema&&b.close<f.ema))):null;
+ const p=bars[idx-1];checks.pullback_continuation=f.trend!==0?(dir===1?(p.close<p.open&&b.close>p.high):(p.close>p.open&&b.close<p.low)):null;
+ const prior=bars.slice(Math.max(0,idx-10),idx);const lowest=Math.min(...prior.map(x=>x.low)),highest=Math.max(...prior.map(x=>x.high));
+ checks.sweep_reclaim=f.trend!==0?(dir===1?(b.low<lowest&&b.close>lowest):(b.high>highest&&b.close<highest)):null;
+ const selected=mode==='ma'?checks.ma_reaction:mode==='fvg'?checks.fvg_retest:mode==='continuation'?checks.pullback_continuation:mode==='sweep'?checks.sweep_reclaim:mode==='ma_and_sweep'?checks.ma_reaction&&checks.sweep_reclaim:mode==='ma_and_continuation'?checks.ma_reaction&&checks.pullback_continuation:mode==='continuation_or_sweep'?checks.pullback_continuation||checks.sweep_reclaim:checks.ma_reaction||checks.fvg_retest;
+ checks.entry_trigger=!!selected;
+ for(const key of ['session','daily_limit','volume','atr','outlier_guard','contiguous','internal_trend','ema_alignment','protected_swing','directional_close','entry_trigger'])if(!checks[key])blocked.push(key);
+ checks.stop_valid=null;checks.lot_valid=null;
+ if(blocked.length||swing===null)return answer(null,f.trend);
+ const stop=Number((swing-dir*Math.max(.20,s.stopBufferAtr*f.atr)).toFixed(2)),ref=b.close+dir*s.spreadDollars/2,dist=dir*(ref-stop);
+ checks.stop_valid=dist>0&&dist<=25;if(!checks.stop_valid){blocked.push('stop_valid');return answer(null,dir);}
+ const maxRisk=state.balance*Math.min(2,Math.max(.1,s.riskPct))/100,requested=s.lotSizeMode==='fixed_lots'?s.fixedLots:Infinity,lots=Math.floor(Math.min(requested,maxRisk/(dist*100))*100+1e-8)/100;
+ checks.lot_valid=lots>=.01;if(!checks.lot_valid){blocked.push('lot_valid');return answer(null,dir);}
  const target=Number((ref+dir*dist*Math.max(1,s.minRR)).toFixed(2));
- return {id:`triad-v2-${b.time}-${dir}`,direction:dir,signalIndex:idx,entryTime:b.time+f.duration,entry:Number(ref.toFixed(3)),stop,target,lots,riskDollars:Number((dist*lots*100).toFixed(2)),riskPctOfEquity:Number((100*dist*lots*100/state.balance).toFixed(2)),spreadCostDollars:Number((lots*100*s.spreadDollars).toFixed(2)),rr:Math.max(1,s.minRR),filledIndex:null,filledPrice:null,session:session.name,setupType:'INTERNAL_SCALP',targetLevelName:`${Math.max(1,s.minRR)}R research target`,reason:`Triad v2: ${dir===1?'bull':'bear'} No-Wick internal trend; 200 EMA aligned; ${retest?'first FVG retest':'VWMA/200 EMA reaction'}; directional close; protected swing stop; tick VWMA ${f.vwma.toFixed(2)}; EMA ${f.ema.toFixed(2)}; outlier guard clear`};
+ return answer({id:`triad-v2-${b.time}-${dir}`,direction:dir,signalIndex:idx,entryTime:b.time+f.duration,entry:Number(ref.toFixed(3)),stop,target,lots,riskDollars:Number((dist*lots*100).toFixed(2)),riskPctOfEquity:Number((100*dist*lots*100/state.balance).toFixed(2)),spreadCostDollars:Number((lots*100*s.spreadDollars).toFixed(2)),rr:Math.max(1,s.minRR),filledIndex:null,filledPrice:null,session:session.name,setupType:'INTERNAL_SCALP',targetLevelName:`${Math.max(1,s.minRR)}R research target`,reason:`Triad: ${dir===1?'bull':'bear'} internal trend; 200 EMA aligned; mode ${mode}; FVG ${checks.fvg_retest?'yes':'no'}; MA ${checks.ma_reaction?'yes':'no'}; pullback proxy ${checks.pullback_continuation?'yes':'no'}; sweep ${checks.sweep_reclaim?'yes':'no'}; protected swing stop; outlier guard clear`},dir);
 }
+export function proposeTriad(bars:SniperBar[],idx:number,s:SniperSettings,state:SniperState):SniperPlan|null{return assessTriad(bars,idx,s,state).plan;}
 export function stepTriad(state:SniperState,bars:SniperBar[],s:SniperSettings):SniperState {
  const i=state.index+1;if(i>=bars.length)return {...state,status:'End of loaded history reached.'};
  const b=bars[i],f=triadFeatures(bars)[i],date=new Date(b.time*1000).toISOString().slice(0,10);let count=date===state.todayDate?state.todayTradesCount:0;
@@ -84,6 +97,8 @@ export function stepTriad(state:SniperState,bars:SniperBar[],s:SniperSettings):S
  }
  const dd=peak>0?Math.max(0,(peak-balance)/peak*100):0;
  const interim:SniperState={index:i,balance,peakBalance:peak,currentDrawdownPct:dd,maxDrawdownPct:Math.max(state.maxDrawdownPct,dd),activePlan:plan,outcomes,todayDate:date,todayTradesCount:count,status};
- if(!plan&&balance>0){const p=proposeTriad(bars,i,s,interim);if(p){interim.activePlan=p;interim.status=p.reason;}}
+ const a=assessTriad(bars,i,s,interim);const row=decisionRow(a,b,f.duration,!!plan);
+ const log=state.decisionLog||[];interim.decisionLog=[...log.slice(-4999),row];interim.decisionLogDropped=(state.decisionLogDropped||0)+(log.length>=5000?1:0);
+ if(!plan&&balance>0&&a.plan){interim.activePlan=a.plan;interim.status=a.plan.reason;}
  return interim;
 }
