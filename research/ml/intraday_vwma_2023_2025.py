@@ -15,8 +15,12 @@ def local_minutes(timestamp):
     t=pd.Timestamp(timestamp,unit='s',tz='UTC').tz_convert(NY)
     return t.hour*60+t.minute
 
-def sim(g,year,variant='diagnostic',cutoff=CUTOFF,slip=.1,commission=7.,stop_extra=0.):
-    d=g['d'];tm=g['tm'];N=len(tm);minute=np.array([local_minutes(t+900) for t in tm]);dates=pd.to_datetime(tm,unit='s',utc=True).tz_convert(NY).date
+def sim(g,year,variant='diagnostic',cutoff=CUTOFF,slip=.1,commission=7.,stop_extra=0.,candidate_filter=None):
+    d=g['d'];tm=g['tm'];N=len(tm)
+    if '_intraday_minutes' not in g:
+        g['_intraday_minutes']=np.array([local_minutes(t+900) for t in tm])
+        g['_intraday_dates']=pd.to_datetime(tm,unit='s',utc=True).tz_convert(NY).date
+    minute=g['_intraday_minutes'];dates=g['_intraday_dates']
     inds=np.flatnonzero((tm>=pd.Timestamp(f'{year}-01-01',tz='UTC').timestamp())&(tm<pd.Timestamp(f'{year+1}-01-01',tz='UTC').timestamp()));last_year=int(inds[-1])
     balance=peak=1000.;dd=0.;last=-1;daily=Counter();records=[];reject=Counter();unknown=0
     def mark(eq):
@@ -40,6 +44,10 @@ def sim(g,year,variant='diagnostic',cutoff=CUTOFF,slip=.1,commission=7.,stop_ext
         if threshold is not None and dist<threshold:reject['line_distance']+=1;continue
         if variant in ('stop_1','line_stop') and stop_atr<1.:reject['stop_distance']+=1;continue
         if variant=='low_vol' and (not np.isfinite(vol) or vol>1.2):reject['volatility']+=1;continue
+        if candidate_filter is not None:
+            reason=candidate_filter(x)
+            if reason:
+                reject[reason]+=1;continue
         lots=lots_for(balance,risk,slip,commission)
         if lots<.01:reject['risk_budget']+=1;continue
         q=x['opposing'];delta=side*(q-entry);target=float(q if np.isfinite(q) and risk<=delta<=3*risk else entry+side*1.5*risk)
