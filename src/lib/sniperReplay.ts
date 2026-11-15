@@ -585,13 +585,58 @@ export function stepSniperSimulation(
         status = `🎯 TAKE PROFIT REACHED @ $${activePlan.target.toFixed(2)} (+${activePlan.rr.toFixed(1)}R / +$${netProfit.toFixed(2)} net) [${activePlan.targetLevelName}]`;
         activePlan = null; // Position box disappears immediately!
       } else {
-        // Check for Break-Even Trailing: if price reached >= 1.0R into profit, trail SL to entry!
+        // Calculate current floating R
+        const initialRiskDistance = Math.abs(activePlan.entry - activePlan.stop);
         const currentMfeR = isLong
-          ? (bar.high - activePlan.entry) / (activePlan.entry - activePlan.stop)
-          : (activePlan.entry - bar.low) / (activePlan.stop - activePlan.entry);
+          ? (bar.high - activePlan.entry) / initialRiskDistance
+          : (activePlan.entry - bar.low) / initialRiskDistance;
+        const currentPnlR = isLong
+          ? (bar.close - activePlan.entry) / initialRiskDistance
+          : (activePlan.entry - bar.close) / initialRiskDistance;
 
-        if (currentMfeR >= 0.95 && activePlan.stop !== activePlan.entry) {
-          // Move SL to Entry (Risk-Free!)
+        // 1. Check for Early Reversal / Exhaustion Signals when in profit (>= +0.70R)
+        // Detects: long rejection wicks (>= 50% of bar range) or opposing displacement against the trade
+        const barRange = bar.high - bar.low;
+        const body = Math.abs(bar.close - bar.open);
+        const upperWick = bar.high - Math.max(bar.open, bar.close);
+        const lowerWick = Math.min(bar.open, bar.close) - bar.low;
+
+        const isExhaustion = currentPnlR >= 0.70 && barRange > 0 && (
+          (isLong && (upperWick / barRange >= 0.50 || (bar.close < bar.open && body >= 0.75 * barRange))) ||
+          (!isLong && (lowerWick / barRange >= 0.50 || (bar.close > bar.open && body >= 0.75 * barRange)))
+        );
+
+        if (isExhaustion) {
+          // Dynamic Auto-Adjust TP: Lock in current profit immediately before reversal!
+          const lockedPoints = isLong ? bar.close - activePlan.entry : activePlan.entry - bar.close;
+          const netDollars = lockedPoints * activePlan.lots * contractMultiplier - spreadPaid;
+          const netR = Number(currentPnlR.toFixed(2));
+          balance += netDollars;
+          peakBalance = Math.max(peakBalance, balance);
+          outcomes.push({
+            id: activePlan.id,
+            direction: activePlan.direction,
+            signalIndex: activePlan.signalIndex,
+            entryIndex: activePlan.filledIndex,
+            exitIndex: nextIdx,
+            entryTime: activePlan.entryTime,
+            exitTime: bar.time,
+            entryPrice: activePlan.entry,
+            exitPrice: bar.close,
+            stopPrice: activePlan.stop,
+            targetPrice: bar.close,
+            lots: activePlan.lots,
+            outcome: 'win',
+            netR,
+            netDollars,
+            spreadPaid,
+            balanceAfter: balance,
+            session: activePlan.session,
+          });
+          status = `⚡ Dynamic Exhaustion Lock: Early rejection detected. Locked in +${netR.toFixed(2)}R (+$${netDollars.toFixed(2)}) before reversal!`;
+          activePlan = null; // Position box disappears immediately!
+        } else if (currentMfeR >= 0.95 && activePlan.stop !== activePlan.entry) {
+          // 2. Break-Even Trailing: if price touched >= 0.95R into profit, trail SL to Entry
           activePlan.stop = activePlan.entry;
           status = `🛡️ Break-Even Activated: Price reached +${currentMfeR.toFixed(1)}R. Stop trailed to entry ($${activePlan.entry.toFixed(2)}).`;
         } else {
