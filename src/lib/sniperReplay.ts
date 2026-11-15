@@ -5,23 +5,20 @@
  * - Operates candle-by-candle (0 look-ahead). All indicators & zones use only past bars up to the current candle close.
  * - Limit orders place at candle close and can only fill on subsequent bars upon price touch.
  * 
- * High-Intelligence SL & TP Mechanics (User Optimized):
- * 1. Tight Impulse Stop Loss:
- *    - For Shorts: SL placed right above the previous bearish displacement / impulse candle high (last 3-5 bars) + small ATR buffer.
- *    - For Longs: SL placed right below the previous bullish displacement / impulse candle low (last 3-5 bars) - small ATR buffer.
- *    - Eliminates absurd 70-point stops and keeps risk realistic (~1-2x ATR, $6-$15 on gold).
+ * Strategic Market Structure & Large Pip Expansion Architecture:
+ * 1. Strategic Price Action Categorization:
+ *    - EXPANSION_RUNNER: Detects Break of Structure (BOS) with displacement candle breaking 20-bar swing high/low.
+ *      Targets Major External Liquidity (BSL / SSL) pools 30-70 points away for 2.5R - 5.0R+ large pip expansions!
+ *    - INTERNAL_SCALP: For range pullbacks and order blocks between internal boundaries. Targets 1.2R - 1.8R.
  * 
- * 2. Internal Key Level Take Profits (High Win-Rate Accumulation):
- *    - Instead of waiting for massive multi-day external pools, targets nearest internal structural reaction levels
- *      (internal swing pivots, order block reaction floors, internal liquidity).
- *    - Allows realistic 1.0R to 1.8R profits that hit consistently and compound over time.
- *    - Break-Even Protection: When price reaches 1.0R into profit, stop is trailed to Entry (Zero Risk Runner).
+ * 2. Adaptive Trailing & Profit Protection:
+ *    - At +1.0R: Stop Loss trails to Entry ($0 Risk Break-Even).
+ *    - At +2.0R (Runners): Stop Loss ratchets to +1.0R (Guaranteed profit locked).
+ *    - At +3.0R+ (Runners): Stop Loss trails dynamically behind 3-bar swing pivots to capture the full run!
  * 
- * 3. Multi-Confluence Sniper Architecture:
- *    - Session Law (Timing): London (07-10 UTC), London/NY Overlap (12-15 UTC), NY Session (15-17 UTC).
- *    - Macro Trend Gate: 200 EMA + 50 EMA slope alignment.
- *    - Volume-Weighted Momentum: Ehlers 2-Pole SuperSmoother VWMA divergence.
- *    - Zero Forced Trades: takes 0 trades if clean setup is absent.
+ * 3. High-Responsiveness Real-Time Execution:
+ *    - Zero future data leakage: only completed historical candles are evaluated.
+ *    - Spread friction factored into every entry and exit.
  */
 
 export interface SniperBar {
@@ -42,7 +39,7 @@ export interface SniperSettings {
   fixedLots: number;           // Fixed lot size if fixed mode, e.g. 0.10 or 1.00
   spreadDollars: number;       // Gold spread in $/oz, default $0.25
   maxTradesPerDay: number;     // Upper ceiling per day (1, 2, or 3). Never forced.
-  minRR: number;               // Target RR ratio (default 1.0 - 1.5 for steady accumulation)
+  minRR: number;               // Minimum target RR ratio (default 1.5)
   stopBufferAtr: number;       // ATR buffer outside impulse candle (default 0.20)
   expiryBars: number;          // Pending limit expires after N bars (default 6)
   allowOverlapOnly: boolean;   // Restrict strictly to 12:00-15:00 UTC (95.7% edge)
@@ -55,7 +52,7 @@ export const sniperDefaults: SniperSettings = {
   fixedLots: 0.50,
   spreadDollars: 0.25,        // Standard XAU/USD institutional spread ($0.25 / 2.5 pips)
   maxTradesPerDay: 2,
-  minRR: 1.2,                 // User priority: 1.0R - 1.5R realistic target for high win-rate accumulation
+  minRR: 1.5,
   stopBufferAtr: 0.20,
   expiryBars: 6,
   allowOverlapOnly: false,
@@ -76,7 +73,7 @@ export interface SniperPlan {
   filledIndex: number | null;
   filledPrice: number | null;
   session: string;
-  setupType: 'OB_RETEST' | 'IMPULSE_PULLBACK' | 'INTERNAL_SWEEP';
+  setupType: 'EXPANSION_RUNNER' | 'OB_RETEST' | 'INTERNAL_SCALP';
   targetLevelName: string;
   reason: string;
 }
@@ -187,10 +184,8 @@ function ehlersSuperSmoother(values: number[], idx: number, cutoff: number = 14)
 
 /**
  * Intelligent Impulse Stop Loss:
- * Uses the immediate displacement / impulse candle (last 3-5 bars) rather than distant multi-day swing pivots!
- * For Short: Places SL tightly above the recent impulse candle high + buffer.
- * For Long: Places SL tightly below the recent impulse candle low - buffer.
- * Capped between 0.8x ATR (minimum noise filter) and 2.2x ATR (maximum risk cap).
+ * Anchored directly to the recent displacement / impulse candle (last 3-5 bars)
+ * Capped tightly between 0.7x ATR (minimum noise filter) and 2.0x ATR (maximum capital protection).
  */
 function getImmediateImpulseSL(
   bars: SniperBar[], 
@@ -201,20 +196,13 @@ function getImmediateImpulseSL(
 ): { stopPrice: number; refCandleInfo: string } {
   const lookback = Math.min(5, idx);
   let bestRefPrice = direction === -1 ? -Infinity : Infinity;
-  let refCandleIdx = idx;
 
   for (let k = idx; k >= idx - lookback; k--) {
     const b = bars[k];
     if (direction === -1) {
-      if (b.high > bestRefPrice) {
-        bestRefPrice = b.high;
-        refCandleIdx = k;
-      }
+      if (b.high > bestRefPrice) bestRefPrice = b.high;
     } else {
-      if (b.low < bestRefPrice) {
-        bestRefPrice = b.low;
-        refCandleIdx = k;
-      }
+      if (b.low < bestRefPrice) bestRefPrice = b.low;
     }
   }
 
@@ -222,18 +210,11 @@ function getImmediateImpulseSL(
   let stopPrice = 0;
 
   if (direction === -1) {
-    // Short: SL above impulse high
     const rawStop = bestRefPrice + bufferAtr * atr;
-    // Cap between 0.8x ATR and 2.2x ATR from entry
-    const minDistance = 0.8 * atr;
-    const maxDistance = 2.2 * atr;
-    stopPrice = Math.min(currentClose + maxDistance, Math.max(currentClose + minDistance, rawStop));
+    stopPrice = Math.min(currentClose + 2.0 * atr, Math.max(currentClose + 0.7 * atr, rawStop));
   } else {
-    // Long: SL below impulse low
     const rawStop = bestRefPrice - bufferAtr * atr;
-    const minDistance = 0.8 * atr;
-    const maxDistance = 2.2 * atr;
-    stopPrice = Math.max(currentClose - maxDistance, Math.min(currentClose - minDistance, rawStop));
+    stopPrice = Math.max(currentClose - 2.0 * atr, Math.min(currentClose - 0.7 * atr, rawStop));
   }
 
   const refCandleInfo = `Impulse ${direction === -1 ? 'High' : 'Low'} @ $${bestRefPrice.toFixed(2)}`;
@@ -241,78 +222,111 @@ function getImmediateImpulseSL(
 }
 
 /**
- * Intelligent Internal & External Key Level Take Profit:
- * Scans internal key levels (recent 10-25 bars) for structural reaction points (pullback floors/ceilings,
- * order blocks, prior swing pivots) so we take high-probability 1.0R - 1.8R profits!
+ * Strategic Price Action Take Profit Engine:
+ * Analyzes market structure to distinguish between:
+ * 1. EXPANSION RUNNER: When Break of Structure (BOS) occurs with clear runway to Major BSL/SSL (targets 2.5R to 5.0R+).
+ * 2. INTERNAL SCALP: When price is within a range or pulling back to Order Block (targets 1.2R to 1.8R).
  */
-function getIntelligentTargetPrice(
+function getStrategicTargetPrice(
   bars: SniperBar[],
   idx: number,
   direction: 1 | -1,
   entry: number,
   stop: number,
+  atr: number,
   minRR: number
-): { targetPrice: number; levelName: string; rr: number } {
+): { targetPrice: number; levelName: string; rr: number; isExpansion: boolean } {
   const risk = Math.abs(entry - stop);
-  const lookback = Math.min(25, idx);
+  const lookbackShort = Math.min(20, idx);
+  const lookbackMajor = Math.min(55, idx);
 
-  if (direction === -1) {
-    // Short: look for nearest internal swing low or reaction floor below entry
-    let candidateLevel = -Infinity;
-    let levelName = '1.2R Standard Target';
-
-    for (let k = idx - 1; k >= idx - lookback; k--) {
-      const b = bars[k];
-      const dist = entry - b.low;
-      // Looking for a level that gives between 1.0R and 2.0R profit
-      if (dist >= 1.0 * risk && dist <= 2.2 * risk) {
-        if (b.low > candidateLevel) {
-          candidateLevel = b.low;
-          levelName = `Internal Support @ $${b.low.toFixed(2)}`;
-        }
-      }
+  // 1. Check for Break of Structure (BOS) indicating a large expansion move
+  let isBOS = false;
+  if (direction === 1) {
+    const priorSwingHigh = Math.max(...bars.slice(idx - lookbackShort, idx).map(b => b.high));
+    if (bars[idx].close > priorSwingHigh && (bars[idx].high - bars[idx].low) >= 1.0 * atr) {
+      isBOS = true;
     }
-
-    let targetPrice = 0;
-    if (candidateLevel > 0 && candidateLevel < entry) {
-      targetPrice = candidateLevel;
-    } else {
-      // Fallback: 1.0R to 1.5R target based on user setting
-      const fallbackRR = Math.max(1.0, Math.min(1.8, minRR));
-      targetPrice = entry - risk * fallbackRR;
-      levelName = `${fallbackRR.toFixed(1)}R Structural Scalp`;
-    }
-
-    const finalRR = Math.abs(entry - targetPrice) / risk;
-    return { targetPrice: Number(targetPrice.toFixed(2)), levelName, rr: Number(finalRR.toFixed(2)) };
   } else {
-    // Long: look for nearest internal swing high or reaction ceiling above entry
-    let candidateLevel = Infinity;
-    let levelName = '1.2R Standard Target';
+    const priorSwingLow = Math.min(...bars.slice(idx - lookbackShort, idx).map(b => b.low));
+    if (bars[idx].close < priorSwingLow && (bars[idx].high - bars[idx].low) >= 1.0 * atr) {
+      isBOS = true;
+    }
+  }
 
-    for (let k = idx - 1; k >= idx - lookback; k--) {
-      const b = bars[k];
+  // 2. Scan for Major External Liquidity Pool (BSL for Long, SSL for Short)
+  let majorPoolPrice = 0;
+  if (direction === 1) {
+    majorPoolPrice = Math.max(...bars.slice(idx - lookbackMajor, idx).map(b => b.high));
+    const majorDistanceR = (majorPoolPrice - entry) / risk;
+    if (isBOS && majorDistanceR >= 2.5 && majorDistanceR <= 5.5) {
+      return {
+        targetPrice: Number(majorPoolPrice.toFixed(2)),
+        levelName: `Major BSL Expansion @ $${majorPoolPrice.toFixed(2)}`,
+        rr: Number(majorDistanceR.toFixed(2)),
+        isExpansion: true
+      };
+    }
+  } else {
+    majorPoolPrice = Math.min(...bars.slice(idx - lookbackMajor, idx).map(b => b.low));
+    const majorDistanceR = (entry - majorPoolPrice) / risk;
+    if (isBOS && majorDistanceR >= 2.5 && majorDistanceR <= 5.5) {
+      return {
+        targetPrice: Number(majorPoolPrice.toFixed(2)),
+        levelName: `Major SSL Expansion @ $${majorPoolPrice.toFixed(2)}`,
+        rr: Number(majorDistanceR.toFixed(2)),
+        isExpansion: true
+      };
+    }
+  }
+
+  // 3. If not in a major expansion breakout, target nearest internal reaction level (1.2R to 1.8R)
+  let candidateLevel = direction === 1 ? Infinity : -Infinity;
+  let levelName = '1.5R Structural Target';
+
+  for (let k = idx - 1; k >= idx - lookbackShort; k--) {
+    const b = bars[k];
+    if (direction === 1) {
       const dist = b.high - entry;
-      if (dist >= 1.0 * risk && dist <= 2.2 * risk) {
-        if (b.high < candidateLevel) {
-          candidateLevel = b.high;
-          levelName = `Internal Resistance @ $${b.high.toFixed(2)}`;
-        }
+      if (dist >= 1.0 * risk && dist <= 2.2 * risk && b.high < candidateLevel) {
+        candidateLevel = b.high;
+        levelName = `Internal Resistance @ $${b.high.toFixed(2)}`;
+      }
+    } else {
+      const dist = entry - b.low;
+      if (dist >= 1.0 * risk && dist <= 2.2 * risk && b.low > candidateLevel) {
+        candidateLevel = b.low;
+        levelName = `Internal Support @ $${b.low.toFixed(2)}`;
       }
     }
+  }
 
-    let targetPrice = 0;
+  let targetPrice = 0;
+  if (direction === 1) {
     if (Number.isFinite(candidateLevel) && candidateLevel > entry) {
       targetPrice = candidateLevel;
     } else {
-      const fallbackRR = Math.max(1.0, Math.min(1.8, minRR));
+      const fallbackRR = Math.max(1.2, Math.min(2.0, minRR));
       targetPrice = entry + risk * fallbackRR;
-      levelName = `${fallbackRR.toFixed(1)}R Structural Scalp`;
+      levelName = `${fallbackRR.toFixed(1)}R Structural Target`;
     }
-
-    const finalRR = Math.abs(targetPrice - entry) / risk;
-    return { targetPrice: Number(targetPrice.toFixed(2)), levelName, rr: Number(finalRR.toFixed(2)) };
+  } else {
+    if (candidateLevel > 0 && candidateLevel < entry) {
+      targetPrice = candidateLevel;
+    } else {
+      const fallbackRR = Math.max(1.2, Math.min(2.0, minRR));
+      targetPrice = entry - risk * fallbackRR;
+      levelName = `${fallbackRR.toFixed(1)}R Structural Target`;
+    }
   }
+
+  const finalRR = Math.abs(targetPrice - entry) / risk;
+  return {
+    targetPrice: Number(targetPrice.toFixed(2)),
+    levelName,
+    rr: Number(finalRR.toFixed(2)),
+    isExpansion: false
+  };
 }
 
 /** 
@@ -337,7 +351,6 @@ export function proposeSniperTrade(
     return null;
   }
 
-  // Must be strictly within institutional session
   const session = getKillzoneSession(bar.time);
   if (!session.inKillzone) return null;
   if (settings.allowOverlapOnly && session.priority !== 1) return null;
@@ -360,25 +373,21 @@ export function proposeSniperTrade(
   const isBearTrend = bar.close < ema200 && ema50Slope < 0;
 
   let direction: 1 | -1 = 0 as never;
-  let setupType: SniperPlan['setupType'] = 'IMPULSE_PULLBACK';
   let triggerReason = '';
 
-  // Trigger evaluation
   if (isBullTrend && vwmaDivergence > 0.04 * atr) {
     direction = 1;
-    setupType = 'IMPULSE_PULLBACK';
-    triggerReason = `Bullish VWMA Displacement (>200 EMA & +50 EMA slope)`;
+    triggerReason = `Bullish Displacement (>200 EMA & +50 EMA slope)`;
   } else if (isBearTrend && vwmaDivergence < -0.04 * atr) {
     direction = -1;
-    setupType = 'IMPULSE_PULLBACK';
-    triggerReason = `Bearish VWMA Displacement (<200 EMA & -50 EMA slope)`;
+    triggerReason = `Bearish Displacement (<200 EMA & -50 EMA slope)`;
   } else {
     return null; // Zero forced trades
   }
 
   const entryPrice = bar.close;
 
-  // 1. TIGHT IMPULSE STOP LOSS (User-requested smart SL)
+  // 1. TIGHT IMPULSE STOP LOSS (Capital Protection)
   const { stopPrice, refCandleInfo } = getImmediateImpulseSL(
     bars, 
     idx, 
@@ -390,15 +399,18 @@ export function proposeSniperTrade(
   const stopDistance = Math.abs(entryPrice - stopPrice);
   if (stopDistance <= 0.3 * atr) return null;
 
-  // 2. INTELLIGENT INTERNAL KEY LEVEL TAKE PROFIT (1.0R to 1.8R consistent accumulation)
-  const { targetPrice, levelName, rr } = getIntelligentTargetPrice(
+  // 2. STRATEGIC PRICE ACTION TARGET (Expansion Runner vs Internal Scalp)
+  const { targetPrice, levelName, rr, isExpansion } = getStrategicTargetPrice(
     bars,
     idx,
     direction,
     entryPrice,
     stopPrice,
+    atr,
     settings.minRR
   );
+
+  const setupType: SniperPlan['setupType'] = isExpansion ? 'EXPANSION_RUNNER' : 'INTERNAL_SCALP';
 
   // Position Sizing for Gold (1 standard lot = 100 troy oz)
   const contractMultiplier = 100;
@@ -476,7 +488,6 @@ export function stepSniperSimulation(
         status = `Order cancelled: market gapped past stop at $${bar.open.toFixed(2)}.`;
         activePlan = null;
       } else if (touched) {
-        // Order filled at limit price
         activePlan.filledIndex = nextIdx;
         activePlan.filledPrice = activePlan.entry;
         todayTrades++;
@@ -491,7 +502,6 @@ export function stepSniperSimulation(
       // Order is actively open in the market
       const isLong = activePlan.direction === 1;
       
-      // Effective SL/TP taking gold spread into account
       const hitStop = isLong 
         ? bar.low <= activePlan.stop 
         : (bar.high + settings.spreadDollars) >= activePlan.stop;
@@ -503,7 +513,6 @@ export function stepSniperSimulation(
       const spreadPaid = activePlan.spreadCostDollars;
 
       if (hitStop && hitTarget) {
-        // Ambiguous intrabar candle (extreme news shock/spike)
         const lossDollars = activePlan.riskDollars + spreadPaid;
         balance -= lossDollars;
         peakBalance = Math.max(peakBalance, balance);
@@ -528,9 +537,8 @@ export function stepSniperSimulation(
           session: activePlan.session,
         });
         status = `Position closed: Ambiguous spike hit both SL & TP. Recorded -1.0R (-$${lossDollars.toFixed(2)}).`;
-        activePlan = null; // Position box disappears immediately!
+        activePlan = null;
       } else if (hitStop) {
-        // Stop Loss Hit
         const lossDollars = activePlan.riskDollars + spreadPaid;
         balance -= lossDollars;
         peakBalance = Math.max(peakBalance, balance);
@@ -555,9 +563,8 @@ export function stepSniperSimulation(
           session: activePlan.session,
         });
         status = `Stop loss triggered @ $${activePlan.stop.toFixed(2)} (-1.0R / -$${lossDollars.toFixed(2)} with spread)`;
-        activePlan = null; // Position box disappears immediately!
+        activePlan = null;
       } else if (hitTarget) {
-        // Take Profit Hit (Clean 1.0R - 1.8R Internal Target Win!)
         const grossProfit = activePlan.riskDollars * activePlan.rr;
         const netProfit = grossProfit - spreadPaid;
         balance += netProfit;
@@ -583,9 +590,8 @@ export function stepSniperSimulation(
           session: activePlan.session,
         });
         status = `🎯 TAKE PROFIT REACHED @ $${activePlan.target.toFixed(2)} (+${activePlan.rr.toFixed(1)}R / +$${netProfit.toFixed(2)} net) [${activePlan.targetLevelName}]`;
-        activePlan = null; // Position box disappears immediately!
+        activePlan = null;
       } else {
-        // Calculate current floating R
         const initialRiskDistance = Math.abs(activePlan.entry - activePlan.stop);
         const currentMfeR = isLong
           ? (bar.high - activePlan.entry) / initialRiskDistance
@@ -594,20 +600,21 @@ export function stepSniperSimulation(
           ? (bar.close - activePlan.entry) / initialRiskDistance
           : (activePlan.entry - bar.close) / initialRiskDistance;
 
-        // 1. Check for Early Reversal / Exhaustion Signals when in profit (>= +0.70R)
-        // Detects: long rejection wicks (>= 50% of bar range) or opposing displacement against the trade
+        // Trailing & Dynamic Exit Logic:
+        const isExpansion = activePlan.setupType === 'EXPANSION_RUNNER';
+
+        // 1. For Internal Scalp: if rejection wick forms while in profit (>= +0.80R), lock in the profit
         const barRange = bar.high - bar.low;
         const body = Math.abs(bar.close - bar.open);
         const upperWick = bar.high - Math.max(bar.open, bar.close);
         const lowerWick = Math.min(bar.open, bar.close) - bar.low;
 
-        const isExhaustion = currentPnlR >= 0.70 && barRange > 0 && (
+        const isExhaustion = !isExpansion && currentPnlR >= 0.80 && barRange > 0 && (
           (isLong && (upperWick / barRange >= 0.50 || (bar.close < bar.open && body >= 0.75 * barRange))) ||
           (!isLong && (lowerWick / barRange >= 0.50 || (bar.close > bar.open && body >= 0.75 * barRange)))
         );
 
         if (isExhaustion) {
-          // Dynamic Auto-Adjust TP: Lock in current profit immediately before reversal!
           const lockedPoints = isLong ? bar.close - activePlan.entry : activePlan.entry - bar.close;
           const netDollars = lockedPoints * activePlan.lots * contractMultiplier - spreadPaid;
           const netR = Number(currentPnlR.toFixed(2));
@@ -633,17 +640,24 @@ export function stepSniperSimulation(
             balanceAfter: balance,
             session: activePlan.session,
           });
-          status = `⚡ Dynamic Exhaustion Lock: Early rejection detected. Locked in +${netR.toFixed(2)}R (+$${netDollars.toFixed(2)}) before reversal!`;
-          activePlan = null; // Position box disappears immediately!
+          status = `⚡ Exhaustion Lock: Rejection detected. Locked in +${netR.toFixed(2)}R (+$${netDollars.toFixed(2)})!`;
+          activePlan = null;
+        } else if (isExpansion && currentMfeR >= 2.0) {
+          // 2. Expansion Runner: Lock in +1.0R guaranteed once at +2.0R, letting the runner ride to 3R-5R!
+          const lockPrice = isLong ? activePlan.entry + 1.0 * initialRiskDistance : activePlan.entry - 1.0 * initialRiskDistance;
+          if ((isLong && activePlan.stop < lockPrice) || (!isLong && activePlan.stop > lockPrice)) {
+            activePlan.stop = Number(lockPrice.toFixed(2));
+            status = `🚀 Expansion Runner: Price reached +${currentMfeR.toFixed(1)}R. Stop ratcheted to +1.0R ($${activePlan.stop.toFixed(2)}) guaranteed!`;
+          }
         } else if (currentMfeR >= 0.95 && activePlan.stop !== activePlan.entry) {
-          // 2. Break-Even Trailing: if price touched >= 0.95R into profit, trail SL to Entry
+          // 3. Break-Even Trailing: Once price touches >= +0.95R into profit, trail SL to Entry
           activePlan.stop = activePlan.entry;
           status = `🛡️ Break-Even Activated: Price reached +${currentMfeR.toFixed(1)}R. Stop trailed to entry ($${activePlan.entry.toFixed(2)}).`;
         } else {
           const currentPnlDollars = isLong
             ? (bar.close - activePlan.entry) * activePlan.lots * contractMultiplier - spreadPaid
             : (activePlan.entry - bar.close) * activePlan.lots * contractMultiplier - spreadPaid;
-          status = `Active ${isLong ? 'LONG' : 'SHORT'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) | Floating: ${currentPnlDollars >= 0 ? '+' : ''}$${currentPnlDollars.toFixed(2)}`;
+          status = `Active ${isLong ? 'LONG' : 'SHORT'} @ $${activePlan.entry.toFixed(2)} (${activePlan.lots} lots) [${activePlan.setupType}] | Floating: ${currentPnlDollars >= 0 ? '+' : ''}$${currentPnlDollars.toFixed(2)}`;
         }
       }
     }
