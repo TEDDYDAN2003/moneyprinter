@@ -836,8 +836,8 @@ export function ResearchDesk() {
     async (force = false) => {
       const current = latest.current;
       if (!current || current.source !== "oanda" || olderBusy.current || loading) return;
-      if (current.candles.length >= 50000) {
-        setOlderNotice("50,000-candle limit reached.");
+      if (current.candles.length >= 200000) {
+        setOlderNotice("200,000-candle limit reached.");
         return;
       }
       if (current.historyExhausted) {
@@ -1097,15 +1097,15 @@ export function ResearchDesk() {
           </select>
         </label>
         <label className="space-y-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-          <span>Initial candles · max 50,000</span>
+          <span>Initial candles · max 200,000</span>
           <input
             className={`${field} block w-24`}
             type="number"
             min="100"
-            max="50000"
+            max="200000"
             value={count}
             onChange={(e) => setCount(+e.target.value)}
-            onBlur={() => setCount(Math.min(50000, Math.max(100, count || 100)))}
+            onBlur={() => setCount(Math.min(200000, Math.max(100, count || 100)))}
           />
         </label>
         <button

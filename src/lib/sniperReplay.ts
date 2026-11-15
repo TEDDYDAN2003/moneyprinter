@@ -437,7 +437,7 @@ export function proposeSniperTrade(
   let lots = maxAllowedRiskDollars / (stopDistance * contractMultiplier);
 
   if (settings.lotSizeMode === 'fixed_lots') {
-    const proposedFixedLots = Math.max(0.001, Number(settings.fixedLots.toFixed(3)));
+    const proposedFixedLots = Math.max(0.01, Number(settings.fixedLots.toFixed(2)));
     const proposedDollarRisk = proposedFixedLots * contractMultiplier * stopDistance;
     // If fixed lot would risk more than 2% of equity, automatically clamp it to save the account!
     if (proposedDollarRisk > maxAllowedRiskDollars) {
@@ -447,8 +447,8 @@ export function proposeSniperTrade(
     }
   }
 
-  // Micro-lot precision (down to 0.001 lot / 0.1 oz) so small accounts ($50, $100, $500) trade safely
-  lots = Math.max(0.001, Number(lots.toFixed(4)));
+  // Min lot size: 0.01 (industry standard micro-lot). Rounds to 2 decimal places.
+  lots = Math.max(0.01, Number(lots.toFixed(2)));
   const riskDollars = Number((lots * contractMultiplier * stopDistance).toFixed(2));
   const riskPctOfEquity = Number(((riskDollars / Math.max(1, state.balance)) * 100).toFixed(2));
 

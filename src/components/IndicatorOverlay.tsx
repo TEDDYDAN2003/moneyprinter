@@ -120,6 +120,20 @@ export function IndicatorOverlay({
       requested.current.clear();
       requested.current.set(id, g);
 
+      // ── OOM FIX: Never postMessage the full bars array (can be 50k+ candles).
+      // The indicator sandbox only needs bars in a padded window around the
+      // visible range so it can compute look-back indicators (EMA, ATR etc.).
+      // We send at most 2,000 bars: the visible slice plus a 500-bar look-back
+      // buffer to the left for warm-up. This keeps the clone payload tiny and
+      // prevents the DataCloneError / out-of-memory crash.
+      const PAD = 500;   // warm-up bars for indicators (EMA200 needs ~200)
+      const fromIdx = Math.max(0, Math.floor(range.from) - PAD);
+      const toIdx   = Math.min(bars.length - 1, Math.ceil(range.to) + 10);
+      const slicedBars = bars.slice(fromIdx, toIdx + 1);
+      // Adjust visible logical range so indices stay correct inside the sandbox
+      const visibleFrom = range.from - fromIdx;
+      const visibleTo   = range.to   - fromIdx;
+
       frame.current?.contentWindow?.postMessage(
         {
           channel: "mp-indicator-v1",
@@ -128,14 +142,14 @@ export function IndicatorOverlay({
           payload: {
             script: program.script,
             inputs: program.inputs,
-            bars,
+            bars: slicedBars,
             symbol: "XAU_USD",
             width,
             height,
             paneWidth,
             paneHeight,
             ...g,
-            visible: { from: range.from, to: range.to },
+            visible: { from: visibleFrom, to: visibleTo },
           },
         },
         "*"

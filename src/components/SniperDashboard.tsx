@@ -32,6 +32,16 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
   const isProfit = stats.netDollars >= 0;
   const p = state.activePlan;
 
+  // ── Real-time floating P&L for active filled trade ──
+  // The engine writes the floating P&L into state.status as a string.
+  // We also parse it out from the status text to show it prominently.
+  const isFilled = p !== null && p.filledIndex !== null;
+  const floatingMatch = isFilled
+    ? state.status.match(/Floating:\s*([+-]?\$[\d,.]+)/)
+    : null;
+  const floatingPnL = floatingMatch ? floatingMatch[1] : null;
+  const floatingPositive = floatingPnL ? !floatingPnL.startsWith("-") : false;
+
   return (
     <div 
       className="fixed bottom-6 right-6 z-40 w-96 rounded-2xl border border-emerald-500/40 bg-slate-950/95 p-4 text-xs text-slate-200 shadow-[0_10px_35px_rgba(0,0,0,0.85)] backdrop-blur-md transition-all duration-200 select-none"
@@ -165,6 +175,25 @@ export function SniperDashboard({ state, settings, onClose }: Props) {
                     <div className="font-bold text-rose-400">${p.stop.toFixed(2)}</div>
                   </div>
                 </div>
+
+                {/* ── Real-time floating P&L banner (only when filled) ── */}
+                {isFilled && (
+                  <div className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 font-mono text-xs font-bold border ${
+                    floatingPositive
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                      : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                  }`}>
+                    <span className="text-[10px] font-semibold opacity-70">Floating P&amp;L</span>
+                    <span>{floatingPnL ?? state.status.match(/Floating:\s*([^\)]+)/)?.[1] ?? "..."}</span>
+                  </div>
+                )}
+                {!isFilled && (
+                  <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 font-mono text-[10px] text-amber-300">
+                    <span className="opacity-70">Status</span>
+                    <span>⏳ Awaiting fill…</span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-[10px] text-slate-400">
                   <span>Lots: <b className="text-white font-mono">{p.lots} lots</b> (100 oz/lot)</span>
                   <span>RR: <b className="text-emerald-400 font-mono">{p.rr}R</b></span>
