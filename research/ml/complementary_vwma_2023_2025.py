@@ -49,7 +49,8 @@ def make_events(g):
             if not setups:continue
             dt=pd.Timestamp(tm[i]+900,unit='s',tz='UTC');r=d.iloc[i]
             item={'index':i,'year':dt.year,'date':dt.strftime('%Y-%m-%d'),'decision':dt.isoformat(),'direction':side,'trigger':'research','h4_aligned':True,'confirmed_body':True,'p2':g['p2l'][i] if side==1 else g['p2h'][i],'p3':g['p3l'][i] if side==1 else g['p3h'][i],'opposing':g['p3h'][i] if side==1 else g['p3l'][i],'atr':atr[i]}
-            for label,context in setups:events.append({**item,'setup':label,'setup_context':context})
+            for label,context in setups:
+                events.append({**item,'setup':label,'setup_context':context,'breakout_index':br['index'] if label in ('breakout_retest','continuation') and br else None,'sweep_index':sw['index'] if label=='sweep_reversal' and sw else None})
         # Box is from candles strictly before current close; update only after this bar's setups.
         if z['box_ready'] and z['compressed']:
             if c[i]>z['box_high']:breaks[1]={'index':i,'edge':z['box_high']}
