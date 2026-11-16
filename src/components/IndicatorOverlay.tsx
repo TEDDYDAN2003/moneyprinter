@@ -138,7 +138,7 @@ export function IndicatorOverlay({
 
       // Padded slice around visible range: 300 bars left lookback for EMA/ATR calculations
       const PAD = 300;
-      const fromIdx = Math.max(0, Math.floor(range.from) - PAD);
+      const fromIdx = program.inputs.showResearchZones === true ? 0 : Math.max(0, Math.floor(range.from) - PAD);
       const toIdx = Math.min(bars.length - 1, Math.ceil(range.to) + 20);
       const slicedBars = bars.slice(fromIdx, toIdx + 1);
 

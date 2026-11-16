@@ -10,6 +10,7 @@ export const vwmaCrossoverInputs = [
   { id: 'showVwma', name: 'Show Volume-Weighted Curve (Cyan)', type: 'bool', defval: true },
   { id: 'showEma', name: 'Show Price Baseline Curve (Amber)', type: 'bool', defval: true },
   { id: 'showSignals', name: 'Show Crossover Tags', type: 'bool', defval: true },
+  { id: 'showResearchZones', name: 'Experimental XAU M15 model zones (unvalidated)', type: 'bool', defval: false },
   { id: 'showDivergence', name: 'Show Volume Pressure Cloud', type: 'bool', defval: true },
   { id: 'vwmaColor', name: 'VWMA Line Colour', type: 'color', defval: '#38bdf8', tab: 'style' },
   { id: 'emaColor', name: 'Baseline Line Colour', type: 'color', defval: '#fbbf24', tab: 'style' },
@@ -30,6 +31,7 @@ const defaults = {
   showVwma: true,
   showEma: true,
   showSignals: true,
+  showResearchZones: false,
   showDivergence: true,
   vwmaColor: '#38bdf8',
   emaColor: '#fbbf24',
@@ -198,11 +200,53 @@ return {
       });
     }
 
+    // Research candidates use completed candles only. Pivot is confirmed before
+    // the signal candle; prior UTC-day extremes are frozen at the day boundary.
+    // UTC session windows and the New York 12:45 historical cutoff are fixed.
+    const zoneModel = {"mean":[-0.11138310893512852,0.8714810281517748,0.32558139534883723,0.07359803443893077,0.30780953565072494,1.3518003229768654,0.6829865361077111,0.38555691554467564,0.37821297429620565,0.3488372093023256,0.2729498164014688,4.913708690330477],"scale":[0.9937775420303826,0.9462323070437969,0.4685916669676689,0.083367010406265,1.007039611868316,0.8608467586251334,0.46531272022512177,0.4867265971984171,0.48494115145059197,0.47660236120742094,0.4454752676949331,3.097021798107636],"coef":[0.052811547725947545,-0.03292154104863926,0.064610750805681,-0.027001917630220473,0.011868521374053096,-0.09599173941801208,0.02618048803735632,0.18556539260636395,-0.06537535823024565,-0.04909753679138778,0.12369531477255673,0.379442144151107],"intercept":-1.516493207969892,"threshold":0.2};
+    const researchZones = [];
+    if (p.showResearchZones && len === 14 && minDiv === 0.15 && n > 220) {
+      let pivotHigh = null, pivotLow = null, day = null, dayHigh = null, dayLow = null, priorHigh = null, priorLow = null;
+      const byBar = new Map(signals.map(s => [s.bar, s]));
+      const nyClock = new Intl.DateTimeFormat('en-US', {timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      for (let i = 0; i < n - 1; i++) {
+        const t = Number(data[i].time), c = data[i];
+        if (!Number.isFinite(t)) continue;
+        const utcDay = Math.floor(t / 86400);
+        if (utcDay !== day) { priorHigh = dayHigh; priorLow = dayLow; day = utcDay; dayHigh = c.high; dayLow = c.low; }
+        else { dayHigh = Math.max(dayHigh, c.high); dayLow = Math.min(dayLow, c.low); }
+        const s = byBar.get(i);
+        if (s && i >= 220 && i > 1 && Number(data[i].time)-Number(data[i-1].time) === 900 && Number(data[i-1].time)-Number(data[i-2].time) === 900) {
+          const decision = new Date((t + 900) * 1000), m = decision.getUTCHours()*60+decision.getUTCMinutes();
+          const parts = nyClock.formatToParts(decision), h = Number(parts.find(x=>x.type==='hour').value), mm = Number(parts.find(x=>x.type==='minute').value), toCutoff = 765-h*60-mm;
+          const session = (m >= 420 && m < 600) || (m >= 720 && m < 1020);
+          const a = atr[i], level = s.dir === 1 ? pivotLow : pivotHigh, prior = s.dir === 1 ? priorLow : priorHigh;
+          const touch = q => q !== null && c.low <= q + .2*a && c.high >= q - .2*a;
+          const swing = touch(level), previousDay = touch(prior);
+          if (session && toCutoff > 0 && Number.isFinite(a) && a > 0 && (swing || previousDay)) {
+            const zone = swing ? level : prior;
+            const features = [s.dir, s.quality, s.trendAligned ? 1 : 0, s.dir*s.diff/a, s.dir*(c.close-c.open)/a, (c.high-c.low)/a, swing?1:0, previousDay?1:0, m>=420&&m<600?1:0, m>=720&&m<900?1:0, m>=900&&m<1020?1:0, toCutoff/60];
+            const logit = zoneModel.intercept + features.reduce((sum, x, j) => sum + (x-zoneModel.mean[j])/zoneModel.scale[j]*zoneModel.coef[j], 0);
+            const score = 1/(1+Math.exp(-logit));
+            researchZones.push({bar:i,dir:s.dir,level:zone,lower:zone-.2*a,upper:zone+.2*a,features,score,suggested:score>=zoneModel.threshold});
+          }
+        }
+        // Confirmation becomes available only after bar i closes, for future bars.
+        const k = i-3;
+        if (k >= 3 && Number(data[i].time)-Number(data[k-3].time) === 5400 && Array.from({length:6},(_,j)=>Number(data[k-2+j].time)-Number(data[k-3+j].time)).every(x=>x===900)) {
+          const neighbors = [k-3,k-2,k-1,k+1,k+2,k+3];
+          if (neighbors.every(j=>data[k].high>data[j].high)) pivotHigh=data[k].high;
+          if (neighbors.every(j=>data[k].low<data[j].low)) pivotLow=data[k].low;
+        }
+      }
+    }
+
     indicator._vwmaStudy = {
       p,
       ema: emaCurve,
       vwma: vwmaCurve,
       signals,
+      researchZones,
       n
     };
     return rows;
@@ -335,6 +379,17 @@ return {
           padding: 3,
           offsetY: isBuy ? 16 : -16
         });
+      }
+    }
+
+    if (p.showResearchZones) {
+      for (const z of v.researchZones) {
+        if (!z.suggested || z.bar < from || z.bar > to) continue;
+        const x = X(z.bar), y1 = Y(z.lower), y2 = Y(z.upper), right = X(Math.min(z.bar + 4, to));
+        if (![x,y1,y2,right].every(Number.isFinite)) continue;
+        ctx.fillStyle = z.dir === 1 ? 'rgba(16,185,129,0.18)' : 'rgba(244,63,94,0.18)';
+        ctx.fillRect(Math.min(x,right),Math.min(y1,y2),Math.abs(right-x),Math.max(1,Math.abs(y2-y1)));
+        bv.label(args,{index:z.bar,price:z.level,text:(z.dir===1?'TEST BUY ZONE':'TEST SELL ZONE')+' · score '+Math.round(z.score*100)+'%',color:'#fff',background:z.dir===1?'#065f46':'#9f1239',align:'center',baseline:z.dir===1?'top':'bottom',size:9,padding:3,offsetY:z.dir===1?15:-15});
       }
     }
 
