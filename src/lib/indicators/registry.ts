@@ -60,7 +60,7 @@ export const INDICATOR_REGISTRY: IndicatorDefinition[] = [
     name: 'VWMA × EMA Crossover',
     tag: 'Volume Divergence',
     color: '#eab308',
-    description: 'Volume-weighted momentum crossover & divergence. Detects institutional volume shifts before breakout.',
+    description: 'Price-range/body-weighted crossover and divergence; not actual traded volume. Optional experimental XAU M15 zone scores are unvalidated and not trading advice.',
     inputs: vwmaCrossoverInputs as IndicatorInput[],
     script: vwmaCrossoverScript
   },
